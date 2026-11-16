@@ -1,0 +1,45 @@
+{
+  "name": "dsh-sidebar-tuner",
+  "version": "0.6.1",
+  "description": "DSH 左侧栏定制：字体族（中/英/回退）、字号、行高、行距、图标列 + 会话列并排，以及可视化设置面板。纯宿主侧样式注入，不改动其它插件。",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "author": "tangolee",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangolee/dsh-sidebar-tuner.git"
+  },
+  "homepage": "https://github.com/tangolee/dsh-sidebar-tuner#readme",
+  "bugs": {
+    "url": "https://github.com/tangolee/dsh-sidebar-tuner/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "sidebar",
+    "theme",
+    "font"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./css": "./css.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "css.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,44 @@
+# dsh-sidebar-tuner bundle patch
+#
+# 全部样式都通过 ctx.styles.insert 注入，不改动任何其它插件的文件或代码。
+# 改完点侧栏刷新按钮（dsh-unlag）或完全重启 DSH 生效。
+
+- insert:
+    - id: sidebar-tuner
+      name: dsh-sidebar-tuner
+      config:
+        # ── 排版 ──────────────────────────────────────────────
+        # 字体栈原始覆盖（非空则优先于下面的三段式）
+        fontFamily: ''
+        # 中文字体 / 英文字体 / 回退项（面板里可直接选）
+        fontFamilyZh: ''
+        fontFamilyEn: ''
+        fontFallbacks: [system-ui, sans-serif]
+        # 扁平字号（px，0 = 关闭）。开启后侧栏所有文字统一成这个字号
+        fontSize: 0
+        # 整列等比缩放（1 = 关闭）。保留字号层级
+        fontScale: 1
+        # 行高（无单位倍数，0 = 关闭）
+        lineHeight: 1.55
+        # 行距（px，额外上下外边距，0 = 关闭）
+        rowGap: 2
+
+        # 展开态内部重排：图标列 56px + 会话列（不折叠即可得到 Codex 布局）
+        compactLayout: true
+
+        # ── 折叠态：图标栏 + 右侧对话列（类 Codex） ──────────────
+        # false = 完全不动 DSH 折叠行为
+        collapsedRail: true
+        # 图标栏宽度（px）
+        railWidth: 56
+        # 右侧工作区/会话列宽度（px）
+        panelWidth: 232
+        # 搜索框并入图标栏：常态一个图标宽，聚焦后向右展开
+        searchInRail: true
+        # 折叠时给中间内容列让位（推挤而非覆盖）
+        pushContent: true
+        # 调试：开启后页面加载会把侧栏真实 DOM 结构回传到 probe.jsonl（排查完记得关）
+        debugDump: false
+
+        # 叠层 z-index 基准
+        zIndex: 30
