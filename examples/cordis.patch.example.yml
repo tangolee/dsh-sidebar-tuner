@@ -1,0 +1,50 @@
+# dsh-sidebar-tuner 配置示例
+#
+# 用法：把整段贴进 profiles/<profile>/cordis.patch.yml 末尾，
+#      或只贴 `insert:` 部分（已有 bundle 补丁的话，bundle 已经帮你插了这一行）。
+#
+# 优先级：设置面板写入的 override.json > 这里的 config
+
+- insert:
+    - id: sidebar-tuner
+      name: dsh-sidebar-tuner
+      config:
+        # ── 字体：中文 / 英文 / 回退（三段式）─────────────────────
+        # 原始字体栈，非空时压过下面三项（想手写完整栈才用）
+        fontFamily: ''
+        # 中文字体名，留空表示不指定
+        fontFamilyZh: 'HarmonyOS Sans SC'
+        # 英文字体名，留空表示不指定
+        fontFamilyEn: 'Inter'
+        # 回退项，按顺序追加到栈尾；generic 不会加引号
+        fontFallbacks:
+          - system-ui
+          - sans-serif
+        # 生成结果示例：
+        #   font-family: "HarmonyOS Sans SC", "Inter", system-ui, sans-serif;
+
+        # ── 字号与行距 ──────────────────────────────────────────
+        # 扁平字号 px，0 = 关闭（会抹平层级）
+        fontSize: 0
+        # 整列等比缩放，1 = 关闭（保留层级）
+        fontScale: 1
+        # 行高倍数，0 = 关闭
+        lineHeight: 1.55
+        # 行距 px，0 = 关闭
+        rowGap: 2
+
+        # ── 布局 ────────────────────────────────────────────────
+        # 图标列 + 会话列并排（展开态生效）
+        compactLayout: true
+        # 折叠侧栏时保留图标栏
+        collapsedRail: true
+        # 折叠侧栏时推挤中间内容列（false = 覆盖）
+        pushContent: true
+        # 图标列宽 px
+        railWidth: 56
+
+        # ── 其它 ────────────────────────────────────────────────
+        # 注入图标列里的调色板入口与设置面板
+        settingsUi: true
+        # 把侧栏真实 DOM 结构回传到 ~/.dsh/sidebar-tuner/probe.jsonl（排查用，平时关）
+        debugDump: false

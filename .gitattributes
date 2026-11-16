@@ -1,0 +1,13 @@
+# 统一换行符，避免 Windows 上 CRLF 混进仓库
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# 运行态与依赖不进库
+override.json -text
+live.css -text

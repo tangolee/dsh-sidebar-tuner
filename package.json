@@ -35,7 +35,9 @@
     "css.js",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "CHANGELOG.md",
+    "LICENSE",
+    "examples"
   ],
   "dsh": {
     "bundle": {
