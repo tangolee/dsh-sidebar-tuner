@@ -2,6 +2,16 @@
 
 版本号与 `package.json` 的 `version` 对应。改动后请同步 bump 并打 tag。
 
+## 0.2.2 — 2026-11-16
+
+只改文档，代码与 0.2.1 逐字节相同。
+
+### 文档
+
+- **安装命令换成 `corepack pnpm@11 add dsh-sidebar-tuner`**：原来写的 `pnpm add` 在没装全局 pnpm 的机器上直接报「不认识 pnpm」；而 `corepack pnpm`（不固定版本）会拉 pnpm 12，DSH 内置的是 pnpm 11、锁文件是 `lockfileVersion: 9.0`，用 12 动锁文件有改写风险。固定到 11 后实测安装成功、锁文件版本不变。
+- **补一条 FAQ**：桌面端的 profile 由 Electron 独占管理，`dsh plugin add` 会被拒绝（`profile "desktop" is managed exclusively by the Electron application`），要用 `pnpm add` 装。
+- 顶部版本徽章换成 npm 动态徽章，以后发版不用手改。
+
 ## 0.2.1 — 2026-11-16
 
 只修性能，功能与 0.2.0 一致。
