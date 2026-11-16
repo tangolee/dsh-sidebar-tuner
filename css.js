@@ -20,6 +20,22 @@ export const DEFAULTS = Object.freeze({
   compactLayout: true,
   collapsedRail: false,
   settingsUi: true,
+  railTooltips: true,
+  // 图标列入口用哪一枚图标：palette / sliders / swatch / brush（都来自 Lucide）
+  railIcon: 'sliders',
+  // 内容区（对话）字体。空 / 0 表示跟随 DSH 自己的「设置 → 外观」。
+  contentFont: '',
+  contentFontZh: '',
+  contentFontEn: '',
+  contentFontFallbacks: ['system-ui', 'sans-serif'],
+  contentFontSize: 0,
+  contentLineHeight: 0,
+  // 内容区的等宽字体（代码块 / 行内代码）。空 = 跟随 DSH 的代码字体设置。
+  contentCodeFont: '',
+  contentCodeFontSize: 0,
+  // 不跟字体/行高/缩放走的区域。默认是侧栏底部的动作槽：
+  // 计费卡片按自己的像素排版，跟着放大缩小只会挤成一团。
+  fontExclude: ['[data-slot="sidebar.footer.action"]'],
   railWidth: 56,
   panelWidth: 232,
   searchInRail: true,
@@ -44,7 +60,12 @@ function quoteFamily(name) {
 /**
  * 组装字体栈：
  *   1. fontFamily 非空 → 直接当原始栈用（高级覆盖）
- *   2. 否则 = 中文字体 + 英文字体 + 回退项，末尾保证有 generic
+ *   2. 否则 = 英文字体 + 中文字体 + 回退项，末尾保证有 generic
+ *
+ * 英文一定要排在中文前面。浏览器是逐字形回退的：中文字体（思源黑体、苹方、
+ * 微软雅黑……）基本都带一套拉丁字形，中文排前面时英文也会被它命中，
+ * 选的英文字体就永远轮不到。反过来英文字体没有中日韩字形，
+ * 中文自然落到后面的中文字体上，两边各管各的。
  */
 function buildStack(c) {
   if (c.fontFamily) return String(c.fontFamily).replace(/[;{}<>]/g, '').trim();
@@ -55,8 +76,8 @@ function buildStack(c) {
     const q = quoteFamily(name);
     if (q && !list.includes(q)) list.push(q);
   };
-  push(c.fontFamilyZh);
   push(c.fontFamilyEn);
+  push(c.fontFamilyZh);
   const fallbacks = Array.isArray(c.fontFallbacks)
     ? c.fontFallbacks
     : String(c.fontFallbacks || '').split(',');
@@ -71,6 +92,25 @@ const FOLDED = '[data-sidebar-collapsed]';
 // 展开态（未折叠）的侧栏：内部重排成「图标列 + 会话列」用这个前缀
 const BASE_EXPANDED = `[class*="_frame"]:not(${FOLDED})`;
 
+/** fontExclude 既接受数组，也接受逗号分隔的字符串（面板里的输入框）。 */
+function normalizeExcludes(value) {
+  const list = Array.isArray(value) ? value : String(value || '').split(/[,，]/);
+  return list.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
+/**
+ * 把「不跟字体缩放走」的区域变成 :not(...) 链。
+ *
+ * `:not(A *)` 排除 A 里面的一切，`:not(A)` 再排除 A 自己。
+ * 这是 Selectors Level 4 的复杂选择器写法，Chromium 88 / Firefox 84 起支持；
+ * 不写就退化成原来的「整列通吃」行为。
+ */
+function exclusionChain(selectorList) {
+  const list = normalizeExcludes(selectorList);
+  if (!list.length) return '';
+  return list.map((item) => `:not(${item}):not(${item} *)`).join('');
+}
+
 /**
  * 三个布尔开关走 <html> 上的特性属性，而不是「重新生成 CSS」。
  *
@@ -82,6 +122,7 @@ export const FLAG = Object.freeze({
   compact: 'data-dst-compact',
   rail: 'data-dst-rail',
   push: 'data-dst-push',
+  tip: 'data-dst-tip',
 });
 const F_COMPACT = 'html[data-dst-compact]';
 const F_RAIL = 'html[data-dst-rail]';
@@ -100,28 +141,34 @@ export function buildCss(input) {
 
   // ── 1. 字体族（中文 + 英文 + 回退） ────────────────────────────────
   const stack = buildStack(c);
-  if (stack) rules.push(`${COL}, ${COL} *{font-family:${stack} !important}`);
+  // 排除区（默认：侧栏底部动作槽里的计费卡片）不吃字体规则
+  const keep = exclusionChain(c.fontExclude);
+  if (stack) rules.push(`${COL}${keep}, ${COL} *${keep}{font-family:${stack} !important}`);
 
   // ── 2. 整列等比缩放（保留层级） ────────────────────────────────────
   const scale = num(c.fontScale, 1, 0.7, 1.6);
   if (scale !== 1) {
     rules.push(`${COL}{overflow:visible !important}`);
     rules.push(`${COL} > *{zoom:${scale} !important}`);
+    // zoom 是沿树累乘的，给排除区补一个倒数就能把外层的放大抵消掉。
+    // 实测（Chromium 157）：1.2 的外层 + 0.8333 的内层，100px 量回 99.98px。
+    const keepRoots = normalizeExcludes(c.fontExclude).join(',');
+    if (keepRoots) rules.push(`${keepRoots}{zoom:${(1 / scale).toFixed(4)} !important}`);
   }
 
   // ── 3. 扁平字号 ────────────────────────────────────────────────────
   const size = num(c.fontSize, 0, 0, 32);
-  if (size > 0) rules.push(`${COL}, ${COL} *{font-size:${size}px !important}`);
+  if (size > 0) rules.push(`${COL}${keep}, ${COL} *${keep}{font-size:${size}px !important}`);
 
   // ── 4. 行高 ────────────────────────────────────────────────────────
   const lineHeight = num(c.lineHeight, 0, 0, 3);
-  if (lineHeight > 0) rules.push(`${COL} *{line-height:${lineHeight} !important}`);
+  if (lineHeight > 0) rules.push(`${COL} *${keep}{line-height:${lineHeight} !important}`);
 
   // ── 5. 行距 ────────────────────────────────────────────────────────
   const gap = num(c.rowGap, 0, 0, 24);
   if (gap > 0) {
     const rows = ['_row', '_entry', '_item', '_sessionRow', '_panelRow', '_label', '_title']
-      .map((suffix) => `${COL} [class*="${suffix}"]`)
+      .map((suffix) => `${COL} [class*="${suffix}"]${keep}`)
       .join(',\n');
     rules.push(`${rows}{margin-block:${gap}px !important}`);
   }
@@ -331,5 +378,100 @@ ${win} [class*="_panelEntry"]{
     rules.push(`${win} ${COL}{overflow:visible !important}`);
   }
 
+  // ── 8. 图标列悬停提示 ──────────────────────────────────────────────
+  // 图标列只留图标时（并排或折叠），名称在 DOM 里被 display:none 掉了，
+  // 这里把名字做成自绘气泡，鼠标停在哪一项就显示哪一项的名称。
+  // 气泡节点由 UI 脚本创建（#dst-tip），样式放在 CSS 里以便热加载调整。
+  // 开关同样走 <html> 属性：html[data-dst-tip] 不存在时气泡永远不显示。
+  const tipZ = num(c.zIndex, 30, 1, 900);
+  rules.push(`#dst-tip{
+  position:fixed !important;
+  left:0; top:0;
+  display:none;
+  max-width:280px;
+  padding:4px 9px;
+  border-radius:8px;
+  border:1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.3));
+  background:var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base, #2b2b2b));
+  color:var(--dsw-alias-label-primary, inherit);
+  font-family:${stack || 'inherit'};
+  font-size:12px;
+  line-height:1.4;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  box-shadow:0 6px 18px rgba(0,0,0,.22);
+  pointer-events:none !important;
+  z-index:${tipZ + 20};
+}`);
+  rules.push(`html[data-dst-tip] #dst-tip[data-show]{display:block !important}`);
+
+  // ── 9. 内容区（对话）字体 ─────────────────────────────────────────
+  // DSH 把内容字号拆成一串派生变量（size / delta / secondary），而且都在
+  // :root 上就算完了；所以在内容列上覆盖时必须四件套一起给，否则字变大了
+  // 行高还按 14px 的 delta 算，行会挤在一起。
+  // 0 表示「跟随 DSH」，所以先按 0 兜住再判断，不要一上来就夹到区间下限
+  const contentSizeRaw = num(c.contentFontSize, 0, 0, 28);
+  const contentSize = contentSizeRaw > 0 ? num(contentSizeRaw, 14, 10, 28) : 0;
+  if (contentSize > 0) {
+    rules.push(`${CENTER}{
+  --dst-content-size:${contentSize}px;
+  --dsh-content-font-size:var(--dst-content-size);
+  --dsh-content-font-delta:calc(var(--dst-content-size) - 14px);
+  --dsh-content-font-size-secondary:min(calc(var(--dst-content-size) - 1px), max(13px, calc(var(--dst-content-size) - 2px)));
+  --dsh-content-font-delta-secondary:calc(var(--dsh-content-font-size-secondary) - 13px);
+}`);
+  }
+
+  const contentStack = buildStack({
+    fontFamily: c.contentFont,
+    fontFamilyZh: c.contentFontZh,
+    fontFamilyEn: c.contentFontEn,
+    fontFallbacks: c.contentFontFallbacks,
+  });
+  if (contentStack) {
+    // 代码块、行内代码、终端、输入框保留各自的等宽字体
+    const skipCode = ':not(pre):not(pre *):not(code):not(kbd):not(samp):not(textarea)';
+    rules.push(`${CENTER}${skipCode}, ${CENTER} *${skipCode}{font-family:${contentStack} !important}`);
+    rules.push(`${CENTER}{--dsw-font-family:${contentStack} !important}`);
+  }
+
+  const contentLhRaw = num(c.contentLineHeight, 0, 0, 2.4);
+  const contentLh = contentLhRaw > 0 ? num(contentLhRaw, 1.5, 1.1, 2.4) : 0;
+  if (contentLh > 0) {
+    const blocks = ['p', 'li', 'blockquote', 'dd', 'dt', 'td', 'th']
+      .map((tag) => `${CENTER} ${tag}`)
+      .join(', ');
+    rules.push(`${blocks}{line-height:${contentLh} !important}`);
+  }
+
+  // 代码：DSH 用 --ds-font-family-code（注意是 ds 不是 dsh）和 --dsh-code-font-size，
+  // 两者同样在 :root 就解析成了具体值，所以既要给变量，也要直接落到 pre/code 上。
+  const rawCodeFont = String(c.contentCodeFont || '').trim();
+  const codeStack = rawCodeFont
+    ? (rawCodeFont.includes(',')
+      ? rawCodeFont
+      : buildStack({ fontFamilyZh: rawCodeFont, fontFallbacks: ['ui-monospace', 'monospace'] }))
+    : '';
+  if (codeStack) {
+    rules.push(`${CENTER}{--dsh-font-family-code:${codeStack} !important; --ds-font-family-code:${codeStack} !important}`);
+    rules.push(`${CENTER} pre, ${CENTER} pre *, ${CENTER} code, ${CENTER} code *, ${CENTER} kbd, ${CENTER} samp{
+  font-family:${codeStack} !important;
+}`);
+  }
+
+  const codeSizeRaw = num(c.contentCodeFontSize, 0, 0, 20);
+  const codeSize = codeSizeRaw > 0 ? num(codeSizeRaw, 11, 10, 20) : 0;
+  if (codeSize > 0) {
+    rules.push(`${CENTER}{
+  --dsh-code-font-size:${codeSize}px;
+  --dsh-code-font-delta:calc(${codeSize}px - 11px);
+}`);
+    rules.push(`${CENTER} pre, ${CENTER} pre *, ${CENTER} code, ${CENTER} kbd, ${CENTER} samp{
+  font-size:${codeSize}px !important;
+}`);
+  }
+
   return rules.join('\n');
 }
+

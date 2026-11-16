@@ -23,8 +23,30 @@
         # 行距（px，额外上下外边距，0 = 关闭）
         rowGap: 2
 
+        # ── 内容区（对话）──────────────────────────────────────
+        # 中英文分段字体；留空 = 跟随 DSH「设置 → 外观」里的文字字体
+        contentFontZh: ''
+        contentFontEn: ''
+        contentFontFallbacks: [system-ui, sans-serif]
+        # 对话正文字号 px，0 = 跟随 DSH 的字号设置（DSH 本身允许 10–22）
+        contentFontSize: 0
+        # 对话正文行高倍数，0 = 用 DSH 自己的换算
+        contentLineHeight: 0
+        # 对话区代码的等宽字体，留空 = 跟随 DSH 代码字体
+        contentCodeFont: ''
+        # 对话区代码字号 px，0 = 跟随 DSH 的代码字号设置
+        contentCodeFontSize: 0
+
+        # 不跟字体/行高/整列缩放的区域（CSS 选择器列表）
+        # 默认排除侧栏底部动作槽：计费卡片按自己的像素排版，跟着放大缩小会挤成一团
+        fontExclude:
+          - '[data-slot="sidebar.footer.action"]'
+
         # 展开态内部重排：图标列 56px + 会话列（不折叠即可得到 Codex 布局）
         compactLayout: true
+
+        # 鼠标停在图标上时浮出该图标的名称（图标列只留图标时用）
+        railTooltips: true
 
         # ── 折叠态：图标栏 + 右侧对话列（类 Codex） ──────────────
         # false = 完全不动 DSH 折叠行为
@@ -35,6 +57,8 @@
         panelWidth: 232
         # 搜索框并入图标栏：常态一个图标宽，聚焦后向右展开
         searchInRail: true
+        # 图标列入口用哪枚 Lucide 图标：palette / sliders / swatch / brush
+        railIcon: sliders
         # 折叠时给中间内容列让位（推挤而非覆盖）
         pushContent: true
         # 调试：开启后页面加载会把侧栏真实 DOM 结构回传到 probe.jsonl（排查完记得关）
@@ -42,3 +66,4 @@
 
         # 叠层 z-index 基准
         zIndex: 30
+

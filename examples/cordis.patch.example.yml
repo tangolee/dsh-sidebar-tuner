@@ -32,19 +32,44 @@
         lineHeight: 1.55
         # 行距 px，0 = 关闭
         rowGap: 2
+        # ── 内容区（对话）───────────────────────────────────────
+        # 只作用于对话区，侧栏不受影响；留空 = 跟随 DSH「设置 → 外观」的文字字体
+        contentFontZh: ''
+        contentFontEn: ''
+        contentFontFallbacks:
+          - system-ui
+          - sans-serif
+        # 正文/对话字号 px，0 = 跟随 DSH 设置（DSH 允许 10–22）
+        contentFontSize: 0
+        # 正文行高倍数，0 = 用 DSH 自己的换算
+        contentLineHeight: 0
+        # 对话区代码的等宽字体，留空 = 跟随 DSH 代码字体
+        contentCodeFont: ''
+        # 对话区代码字号 px，0 = 跟随 DSH（DSH 允许 10–16）
+        contentCodeFontSize: 0
+
+        # 不跟字体/行高/整列缩放的区域（选择器列表，逗号或 YAML 列表写法都行）
+        # 留空 = 整个侧栏都跟着变；默认排除侧栏底部动作槽里的计费卡片
+        fontExclude:
+          - '[data-slot="sidebar.footer.action"]'
 
         # ── 布局 ────────────────────────────────────────────────
         # 图标列 + 会话列并排（展开态生效）
         compactLayout: true
+        # 鼠标停在图标上浮出该图标的名称（图标列只留图标时用）
+        railTooltips: true
         # 折叠侧栏时保留图标栏
         collapsedRail: true
         # 折叠侧栏时推挤中间内容列（false = 覆盖）
         pushContent: true
         # 图标列宽 px
         railWidth: 56
+        # 图标列入口的图标：palette 调色板 / sliders 滑杆 / swatch 色卡 / brush 画笔（来自 Lucide）
+        railIcon: sliders
 
         # ── 其它 ────────────────────────────────────────────────
         # 注入图标列里的调色板入口与设置面板
         settingsUi: true
         # 把侧栏真实 DOM 结构回传到 ~/.dsh/sidebar-tuner/probe.jsonl（排查用，平时关）
         debugDump: false
+
