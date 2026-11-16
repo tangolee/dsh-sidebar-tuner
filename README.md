@@ -3,7 +3,7 @@
 > DSH 桌面端的左侧栏定制插件：三段式字体、字号、行高、行距、图标列 + 会话列并排，带可视化设置面板。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![version](https://img.shields.io/badge/version-0.6.1-green.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.1.0-green.svg)](CHANGELOG.md)
 [![platform](https://img.shields.io/badge/platform-DSH%20desktop-4B6EF5.svg)](#安装)
 [![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 
@@ -176,7 +176,7 @@ cordis.patch.yml 的 config
 | 改了 `live.css` 看不到效果 | 轮询脚本还是旧版本 | 重启一次，之后 1.5s 内自动生效 |
 | 折叠后没有会话列表 | 见「已知限制」 | 用展开态的两栏布局，或关掉 `compactLayout` |
 | 字体没变 | 选中的字体本机没装 | 下拉里标「· 未检测」的就是没装的 |
-| 字号看起来比邻居小 | 自定义节点未继承 | 0.5.7 起用固定 id + `font-size: inherit`，升级后正常 |
+| 字号看起来比邻居小 | 自定义节点未继承 | 本版用固定 id `#dst-rail-entry` + `font-size: inherit`，正常 |
 | 想确认插件是否在跑 | 用诊断路由 | 见下方「开发」 |
 
 ## 开发
@@ -215,7 +215,7 @@ live.css           热加载样式表（gitignore）
 ```powershell
 git add -A
 git commit -m "feat: ..."     # feat / fix / docs / chore
-git tag v0.6.2                # 与 package.json 的 version 同步
+git tag v0.1.1                # 与 package.json 的 version 同步
 git push --tags
 ```
 

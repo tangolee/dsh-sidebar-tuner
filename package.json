@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-tuner",
-  "version": "0.6.1",
+  "version": "0.1.0",
   "description": "DSH 左侧栏定制：字体族（中/英/回退）、字号、行高、行距、图标列 + 会话列并排，以及可视化设置面板。纯宿主侧样式注入，不改动其它插件。",
   "type": "module",
   "main": "index.js",
