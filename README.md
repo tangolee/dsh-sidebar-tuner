@@ -23,12 +23,14 @@ DSH 自己的「设置 → 外观 → 字号」只作用于对话内容区，左
 
 ```powershell
 cd "$env:USERPROFILE\.dsh\profiles\desktop"
-pnpm add dsh-sidebar-tuner
+corepack pnpm add dsh-sidebar-tuner
 ```
+
+已经装过 pnpm 的话，把 `corepack pnpm` 换成 `pnpm` 就行；Node 自带 corepack，不用另外装。
 
 在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`，然后**完全退出 DSH（含托盘）再打开**。
 
-不想走 npm 也可以直接从 GitHub 装：`pnpm add "github:tangolee/dsh-sidebar-tuner"`。改代码时用本地源码：`pnpm add "dsh-sidebar-tuner@link:<源码目录>"`。
+不想走 npm 也可以直接从 GitHub 装：`corepack pnpm add "github:tangolee/dsh-sidebar-tuner"`。改代码时用本地源码：`corepack pnpm add "dsh-sidebar-tuner@link:<源码目录>"`。
 
 ## 用起来
 
@@ -83,6 +85,7 @@ sidebar-tuner:
 | 字体选了没变 | 下拉里灰字「（未安装）」表示本机没装这个字体 |
 | 折叠后没有会话列表 | 折叠＝全部收起，两栏在展开态用 |
 | 侧栏底部的计费卡没跟着变 | 这是有意的，见「高级 → 不改字体的区域」 |
+| 想用 `dsh plugin add` | 桌面端的 profile 由 Electron 独占管理，CLI 会拒绝；照上面用 `pnpm add` 装 |
 
 ## 兼容性
 
