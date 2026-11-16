@@ -2,12 +2,12 @@
 
 给 DSH 桌面端的侧栏和对话区调字体、字号、行距，并把侧栏排成「图标列 + 会话列」两栏。
 
-[![version](https://img.shields.io/badge/version-0.2.0-green.svg)](CHANGELOG.md)
+[![npm](https://img.shields.io/npm/v/dsh-sidebar-tuner.svg)](https://www.npmjs.com/package/dsh-sidebar-tuner)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-DSH%20desktop-4B6EF5.svg)](#兼容性)
 [![dsh](https://img.shields.io/badge/dsh-0.2.x-brightgreen.svg)](#兼容性)
 
-<img src="assets/screenshots/01-rail-layout.png" width="300" alt="侧栏：图标列 + 会话列">
+<img src="https://raw.githubusercontent.com/tangolee/dsh-sidebar-tuner/main/assets/screenshots/01-rail-layout.png" width="300" alt="侧栏：图标列 + 会话列">
 
 DSH 自己的「设置 → 外观 → 字号」只作用于对话内容区，左侧栏用的是写死的像素值，所以侧栏的字号、行距一直调不动。这个插件把侧栏和对话区的排版都接管了，改完立即生效，存在本机。
 
@@ -23,12 +23,12 @@ DSH 自己的「设置 → 外观 → 字号」只作用于对话内容区，左
 
 ```powershell
 cd "$env:USERPROFILE\.dsh\profiles\desktop"
-pnpm add "github:tangolee/dsh-sidebar-tuner"
+pnpm add dsh-sidebar-tuner
 ```
 
 在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`，然后**完全退出 DSH（含托盘）再打开**。
 
-改代码时用本地源码：`pnpm add "dsh-sidebar-tuner@link:<源码目录>"`。
+不想走 npm 也可以直接从 GitHub 装：`pnpm add "github:tangolee/dsh-sidebar-tuner"`。改代码时用本地源码：`pnpm add "dsh-sidebar-tuner@link:<源码目录>"`。
 
 ## 用起来
 
@@ -43,7 +43,7 @@ pnpm add "github:tangolee/dsh-sidebar-tuner"
 | 对话区字体 | 正文与代码的字体、字号、行高 |
 | 高级 | 哪些区域不跟着缩放（比如计费卡） |
 
-<img src="assets/screenshots/02-panel-settings.png" width="300" alt="设置面板">
+<img src="https://raw.githubusercontent.com/tangolee/dsh-sidebar-tuner/main/assets/screenshots/02-panel-settings.png" width="300" alt="设置面板">
 
 数字项改完点**应用并保存**；勾选类开关勾上就生效。想全部回到初始状态点**恢复默认**。
 
@@ -98,3 +98,4 @@ DSH 桌面端 **0.2.x**，声明范围 `engines.dsh: >=0.2.0-rc.1 <0.3.0-0`，�
 ## 许可
 
 [MIT](LICENSE) © 2026 tangolee · 入口图标来自 [Lucide](https://lucide.dev)（ISC，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）
+

@@ -209,8 +209,18 @@ const UI_SCRIPT = `(() => {
   });
 
   // 紧凑（图标列 + 会话列并排）时只显示图标；否则图标 + 文字
-  const syncLabel = () => {
+  // 每秒都会跑，所以只在布局态或字号真的变了时才写内联样式，
+  // 否则 getComputedStyle + 写样式会让整页每秒强制重排一次。
+  let lastSyncKey = '';
+  let syncTick = 0;
+  const syncLabel = (force) => {
     const compact = document.documentElement.hasAttribute('data-dst-compact');
+    syncTick += 1;
+    if (!force && syncTick % 10 !== 0) {
+      const key = compact ? 'compact' : 'full';
+      if (key === lastSyncKey) return;
+    }
+    lastSyncKey = compact ? 'compact' : 'full';
     railLabel.style.display = compact ? 'none' : '';
     // 直接对齐邻居的 computed 字号，主题/缩放下也不会走样
     if (!compact) {
@@ -235,7 +245,7 @@ const UI_SCRIPT = `(() => {
   const attachRail = () => {
     const nav = document.querySelector('[class*="_panelList"]');
     if (nav && railBtn.parentElement !== nav) nav.appendChild(railBtn);
-    syncLabel();
+    syncLabel(false);
   };
   attachRail();
   setInterval(attachRail, 1000);
@@ -303,7 +313,7 @@ const UI_SCRIPT = `(() => {
   compatLine.textContent = '已适配（测到 ' + DSH_TESTED + '，兼容 0.2.x）';
   panel.appendChild(compatLine);
   setTimeout(compatCheck, 3000);
-  setInterval(compatCheck, 8000);
+  setInterval(compatCheck, 30000);
 
   const inputStyle = {
     flex: '1 1 auto', minWidth: '0', padding: '3px 6px', borderRadius: '6px',
@@ -592,6 +602,8 @@ const UI_SCRIPT = `(() => {
    */
   let lastCss = '';
   const pull = async () => {
+    // 窗口在后台/最小化时没必要继续轮询，省掉一整条请求链路
+    if (document.visibilityState !== 'visible') return;
     try {
       const res = await fetch('/sidebar-tuner/tuner.css?t=' + Date.now(), { cache: 'no-store' });
       const text = await res.text();
