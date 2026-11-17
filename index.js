@@ -345,7 +345,7 @@ const UI_SCRIPT = `(() => {
 
   /**
    * 胶囊开关：真身还是一个隐藏的 checkbox，
-   * 这样 fill / collect 里读 `.checked` 的逻辑一行都不用改。
+   * 这样 fill / collect 里读 .checked 的逻辑一行都不用改。
    */
   const PILL_SYNCS = [];
   const pillOf = (box) => {
