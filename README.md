@@ -22,31 +22,35 @@ DSH 自带的「设置 → 外观 → 字号」只管对话内容区，左侧栏
 
 ## 安装
 
-**桌面端**：设置 → 插件 → 添加插件，输入 `dsh-sidebar-tuner`，点安装，再点立即启用。装完**完全退出 DSH（连托盘图标一起退）再打开**。
+把这个链接复制到 DSH 的插件页：
 
-**命令行**（`dsh web` / headless / 自定义 profile）：
+```
+https://github.com/tangolee/dsh-sidebar-tuner
+```
+
+**设置 → 插件 → 添加插件 → 粘贴 → 安装 → 立即启用**，然后**完全退出 DSH（连托盘图标一起退）再打开**。
+
+这个链接装的是仓库最新提交。想要钉死的版本，用 Release 里打好的包：
+
+```
+https://github.com/tangolee/dsh-sidebar-tuner/releases/download/v0.3.0/dsh-sidebar-tuner.tgz
+```
+
+命令行等价写法（桌面端的 profile 由应用独占管理，命令行只对 `web` / headless 有效）：
+
+```sh
+dsh plugin --profile web add https://github.com/tangolee/dsh-sidebar-tuner
+```
+
+也可以从 npm 装：
 
 ```sh
 dsh plugin --profile web add dsh-sidebar-tuner
 ```
 
-> 桌面端的 profile 由应用独占管理，`dsh plugin` 改不了它——桌面端请用上面的图形界面。
+> npm 上刚发布的版本会被 profile 的供应链延迟（`minimumReleaseAge`）挡回上一个，装不到就显式写版本号：`dsh-sidebar-tuner@0.3.0`。
 
-上面两种方式都会自己把插件登记进 profile 的 `dsh.profile.bundles`，不用手改配置文件。
-
-**装 GitHub 上的固定版本**（npm 还没有的版本，或者就是想锁版本）：
-
-```sh
-dsh plugin --profile web add https://github.com/tangolee/dsh-sidebar-tuner/releases/download/v0.3.0/dsh-sidebar-tuner.tgz
-```
-
-**刚发布的版本装不上？** profile 默认带供应链延迟（`minimumReleaseAge`），发布不满一天的版本会被挡回上一个版本。显式写版本号就能装：
-
-```sh
-dsh plugin --profile web add dsh-sidebar-tuner@0.3.0
-```
-
-**自己改代码**：`corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"`，改完重启就生效。这条是唯一需要手动的——`pnpm add` 不会写启用清单，得在 profile 的 `dsh.profile.bundles` 里手动加一行 `"dsh-sidebar-tuner"`。
+上面这些装法都会自己把插件登记进 `dsh.profile.bundles`，不用手改配置文件。唯一的例外是自己改代码：`corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"` 之后，得在 profile 的 `dsh.profile.bundles` 里手动加一行 `"dsh-sidebar-tuner"`。
 ## 怎么用
 
 侧栏图标列里有个画笔图标（可以在设置里换成滑杆、色卡或调色板），点它打开面板。左边一列是分类，右边是这一类的设置项，不再需要一路往下滚：
