@@ -72,7 +72,9 @@ const UI_SCRIPT = `(() => {
   window.__dstUI = true;
 
   const ZH_FONTS = ['HarmonyOS Sans SC','Microsoft YaHei','PingFang SC','Noto Sans SC','Source Han Sans SC','Sarasa Gothic SC','LXGW WenKai','DengXian','SimSun','SimHei','KaiTi','FangSong','Microsoft JhengHei'];
-  const EN_FONTS = ['Segoe UI','Segoe UI Variable','Inter','SF Pro Text','Helvetica Neue','Arial','Roboto','Geist','JetBrains Mono','Maple Mono NF CN','Cascadia Code','Consolas','Fira Code'];
+  // 同一套 Inter 在系统里可能是三个家族名：静态 Inter、光学尺寸版 Inter Display、
+  // 可变版 Inter Variable。三者字距与笔画都不同，所以分别列出由用户挑。
+  const EN_FONTS = ['Inter','Inter Display','Inter Variable','Segoe UI','Segoe UI Variable','SF Pro Text','Helvetica Neue','Arial','Roboto','Geist','JetBrains Mono','Maple Mono NF CN','Cascadia Code','Consolas','Fira Code'];
   const MONO_FONTS = ['JetBrains Mono','Maple Mono NF CN','Cascadia Code','Fira Code','Consolas','SF Mono','Source Code Pro','IBM Plex Mono','Roboto Mono','ui-monospace','monospace'];
   const FALLBACKS = ['system-ui','sans-serif','serif','monospace'];
   const NUM_FIELDS = [
