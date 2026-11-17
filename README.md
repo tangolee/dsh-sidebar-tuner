@@ -22,14 +22,29 @@ DSH 自带的「设置 → 外观 → 字号」只管对话内容区，左侧栏
 
 ## 安装
 
+两种形态，按你手上有没有源码选：
+
+**A. 有源码（开发机、自己改插件的情况）**
+
+指向源码目录，改完重启就生效，不用重新打包：
+
+```powershell
+cd "$env:USERPROFILE\.dsh\profiles\desktop"
+corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"
+```
+
+**B. 没有源码（只想用）**
+
+装 npm 上的最新版（当前 `0.3.0`）：
+
 ```powershell
 cd "$env:USERPROFILE\.dsh\profiles\desktop"
 corepack pnpm@11 add dsh-sidebar-tuner
 ```
 
-装完在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`，然后**完全退出 DSH（连托盘图标一起退）再打开**。
+两种都要在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`，然后**完全退出 DSH（连托盘图标一起退）再打开**。
 
-装的是 npm 上最新版（当前 `0.3.0`）。想锁版本就写 `dsh-sidebar-tuner@0.3.0`；想跟仓库最新提交就 `corepack pnpm@11 add "github:tangolee/dsh-sidebar-tuner#main"`；改本机代码时用源码链接 `corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"`。
+> 想锁版本写 `dsh-sidebar-tuner@0.3.0`；想跟仓库最新提交用 `corepack pnpm@11 add "github:tangolee/dsh-sidebar-tuner#main"`。
 
 ## 怎么用
 
