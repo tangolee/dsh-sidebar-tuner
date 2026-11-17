@@ -24,14 +24,12 @@ DSH 自带的「设置 → 外观 → 字号」只管对话内容区，左侧栏
 
 ```powershell
 cd "$env:USERPROFILE\.dsh\profiles\desktop"
-corepack pnpm@11 add "github:tangolee/dsh-sidebar-tuner#v0.3.0"
+corepack pnpm@11 add dsh-sidebar-tuner
 ```
 
 装完在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`，然后**完全退出 DSH（连托盘图标一起退）再打开**。
 
-> npm 上目前还是 0.2.2，0.3.0 还没发到 registry（账号的 2FA 卡住了）。要装老版本可以直接 `corepack pnpm@11 add dsh-sidebar-tuner`；想跟最新代码就装 `#main`。
->
-> 改代码时用本地源码：`corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"`。
+装的是 npm 上最新版（当前 `0.3.0`）。想锁版本就写 `dsh-sidebar-tuner@0.3.0`；想跟仓库最新提交就 `corepack pnpm@11 add "github:tangolee/dsh-sidebar-tuner#main"`；改本机代码时用源码链接 `corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"`。
 
 ## 怎么用
 
