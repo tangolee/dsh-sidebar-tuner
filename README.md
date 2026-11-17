@@ -22,13 +22,13 @@ DSH 自带的「设置 → 外观 → 字号」只管对话内容区，左侧栏
 
 ## 安装
 
-三种方式，挑一种就行。装完都要**完全退出 DSH（连托盘图标一起退）再打开**。
+三种方式挑一种。不管哪种，装完都要**完全退出 DSH（连托盘图标一起退）再打开**，不然加载的还是旧的。
 
-### 1. 插件市场
+### 1. 插件市场（推荐）
 
-在 DSH 里打开插件市场（dsh-market），搜 `dsh-sidebar-tuner`，点安装。一条命令都不用敲。
+在 DSH 里打开插件市场（dsh-market），搜 `dsh-sidebar-tuner`，点安装。依赖和启用登记市场会一起写好，不用碰任何配置文件。
 
-> 市场条目还在审核收录，搜不到时用下面两种。
+> 市场条目还在审核收录中，搜不到就用下面两种。
 
 ### 2. npm
 
@@ -37,19 +37,36 @@ cd "$env:USERPROFILE\.dsh\profiles\desktop"
 corepack pnpm@11 add dsh-sidebar-tuner
 ```
 
-装完在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`。想锁版本写 `dsh-sidebar-tuner@0.3.0`。
-
 ### 3. GitHub
 
-跟仓库最新提交，或者 npm 用不了时走这条：
+想跟仓库里的最新提交，或者 npm 那边装不了时走这条：
 
 ```powershell
 cd "$env:USERPROFILE\.dsh\profiles\desktop"
 corepack pnpm@11 add "github:tangolee/dsh-sidebar-tuner#v0.3.0"
 ```
 
-把 `#v0.3.0` 换成 `#main` 就是跟最新提交。装完同样要在 `dsh.profile.bundles` 里加 `"dsh-sidebar-tuner"`。
+把 `#v0.3.0` 换成 `#main` 就是跟最新提交。
 
+### 用 npm 或 GitHub 装的，还要多一步
+
+`pnpm add` 只负责把包装进 `node_modules`；DSH 启动时只加载 `dsh.profile.bundles` 里列出的插件，所以还得在那份 `package.json` 里登记一次。打开 `C:\Users\<你>\.dsh\profiles\desktop\package.json`，找到 `dsh.profile.bundles`，在数组里加一项：
+
+```jsonc
+"dsh": {
+  "profile": {
+    "bundles": [
+      "dsh-web-app",
+      "dsh-sidebar-tuner"   // ← 加这一行
+    ]
+  }
+}
+```
+
+保存后重启 DSH 就生效。**这行是 DSH 自己的启用清单，不是插件要求的**，所以插件没法替你写。
+
+> 想装指定版本就把版本号带在包名后面：`corepack pnpm@11 add dsh-sidebar-tuner@0.3.0`；不带就是最新版。
+>
 > 自己改代码：`corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"`，改完重启就生效，不用重新打包。
 
 ## 怎么用
