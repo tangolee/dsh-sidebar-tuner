@@ -33,6 +33,23 @@ export const DEFAULTS = Object.freeze({
   // 内容区的等宽字体（代码块 / 行内代码）。空 = 跟随 DSH 的代码字体设置。
   contentCodeFont: '',
   contentCodeFontSize: 0,
+  // ── 0.3.0 新增：字距 / 字重 / OpenType 特性（侧栏与对话共用一套取值）──
+  // letterSpacing 单位 em，0 = 不改；fontWeight 0 = 不改（用 DSH 自己的字重）
+  letterSpacing: 0,
+  fontWeight: 0,
+  // 支持的 OpenType 特性：calt / case / tnum / ss01 / cv11
+  fontFeatures: [],
+  // ── 0.3.0 新增：终端（xterm）──────
+  // 终端字体族：空 = 跟随代码字体；只作用于终端容器，不动全局 --ds-font-family-code
+  terminalFontFamily: '',
+  // 终端字号 px，0 = 关闭（xterm 内部硬编码 13，改动有度量错位风险，默认关）
+  terminalFontSize: 0,
+  // 终端字距 px（xterm 的 letterSpacing 选项，同样只在创建时读）
+  terminalLetterSpacing: 0,
+  // 终端连字（font-feature-settings: calt/liga）
+  terminalLigatures: false,
+  // 跟随代码字体：勾上时忽略 terminalFontFamily
+  terminalFollowCode: true,
   // 不跟字体/行高/缩放走的区域。默认是侧栏底部的动作槽：
   // 计费卡片按自己的像素排版，跟着放大缩小只会挤成一团。
   fontExclude: ['[data-slot="sidebar.footer.action"]'],
@@ -171,6 +188,23 @@ export function buildCss(input) {
       .map((suffix) => `${COL} [class*="${suffix}"]${keep}`)
       .join(',\n');
     rules.push(`${rows}{margin-block:${gap}px !important}`);
+  }
+
+  // ── 5.2 字距 / 字重 / OpenType 特性 ────────────────────────────────
+  // 三项合并成一条规则，避免同一选择器重复三次把样式表撑大。
+  const tracking = num(c.letterSpacing, 0, -0.05, 0.08);
+  const weight = num(c.fontWeight, 0, 0, 900);
+  const featureList = (Array.isArray(c.fontFeatures) ? c.fontFeatures : String(c.fontFeatures || '').split(','))
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  if (tracking !== 0 || weight > 0 || featureList.length > 0) {
+    const decl = [];
+    if (tracking !== 0) decl.push(`letter-spacing:${tracking}em`);
+    if (weight > 0) decl.push(`font-weight:${weight}`);
+    if (featureList.length > 0) {
+      decl.push(`font-feature-settings:${featureList.map((name) => `"${name}" 1`).join(', ')}`);
+    }
+    rules.push(`${COL}${keep}, ${COL} *${keep}{${decl.join(';')} !important}`);
   }
 
   // ── 5.5 「侧栏设置」入口：悬浮高亮 + 文字字号 ─────────────────────
@@ -472,6 +506,26 @@ ${win} [class*="_panelEntry"]{
 }`);
   }
 
+
+  // ── 10. 终端（xterm）字体 ──────────────────────────────────────────
+  // better-sidebar 的 xterm 只在创建时读一次「容器的计算样式」：
+  //   new Terminal({ fontFamily: getComputedStyle(node).fontFamily, fontSize: 13 })
+  // 所以这里只影响终端容器，不碰全局 --ds-font-family-code（那会连带改代码块）。
+  // 约束：已打开的终端不会重读，必须关掉该标签重新打开才生效。
+  const termFont = c.terminalFollowCode === false ? quoteFamily(c.terminalFontFamily) : '';
+  if (termFont && !GENERIC.has(termFont.replace(/"/g, '').toLowerCase())) {
+    rules.push(`:root{--dst-terminal-font:${termFont}}`);
+    rules.push(`div:has(> .xterm){font-family:var(--dst-terminal-font) !important}`);
+    rules.push(`div:has(> .xterm) .xterm{font-family:var(--dst-terminal-font) !important}`);
+  }
+  // 以下三项都是「实验性」：xterm 内部尺寸缓存创建时就算好了，改了会有错位风险。
+  const termSize = num(c.terminalFontSize, 0, 0, 20);
+  if (termSize > 0) rules.push(`.xterm{font-size:${termSize}px !important}`);
+  const termTracking = num(c.terminalLetterSpacing, 0, 0, 4);
+  if (termTracking > 0) rules.push(`.xterm .xterm-rows{letter-spacing:${termTracking}px !important}`);
+  if (c.terminalLigatures === true) {
+    rules.push(`.xterm{font-feature-settings:"calt" 1, "liga" 1 !important}`);
+  }
   return rules.join('\n');
 }
 

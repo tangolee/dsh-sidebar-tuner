@@ -42,6 +42,27 @@
         fontExclude:
           - '[data-slot="sidebar.footer.action"]'
 
+        # ── 字距与字形（0.3.0）────────────────────────────────
+        # 字距，单位 em。0 = 不改；-0.011 是 Inter 官方给 14–16px 的建议值
+        letterSpacing: 0
+        # 字重，0 = 用 DSH 自己的字重。450 这类中间值需要可变字体
+        fontWeight: 0
+        # OpenType 特性，可多选：calt / case / tnum / ss01 / cv11
+        fontFeatures: []
+
+        # ── 终端（0.3.0）──────────────────────────────────────
+        # true = 终端跟随「对话区 → 代码字体」，下面的 terminalFontFamily 失效
+        terminalFollowCode: true
+        # 终端专用等宽字体，留空 = 不覆盖。只作用于终端容器，不动全局代码字体
+        # 注意：xterm 只在创建时读一次容器字体，已打开的终端需关掉标签重开
+        terminalFontFamily: ''
+        # 终端字号 px，0 = 关闭。xterm 内部写死 13px，改动有度量错位风险（实验项）
+        terminalFontSize: 0
+        # 终端字距 px，0 = 关闭（实验项）
+        terminalLetterSpacing: 0
+        # 终端连字（calt / liga）
+        terminalLigatures: false
+
         # 展开态内部重排：图标列 56px + 会话列（不折叠即可得到 Codex 布局）
         compactLayout: true
 

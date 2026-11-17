@@ -2,6 +2,42 @@
 
 版本号与 `package.json` 的 `version` 对应。改动后请同步 bump 并打 tag。
 
+## 0.3.0-beta.1 — 2026-11-17
+
+设置面板重做的第一版。功能没变，改的是「怎么把设置摆出来」。
+
+### 面板
+
+- **改成一屏两栏**：左侧是八个设置域的导航（字体 / 排版 / 布局 / 入口图标 / 对话区字体 / 字距与字形 / 终端 / 高级），右侧只挂当前域的 DOM。不再是一条长滚动，切域时右侧滚回顶部。
+- **左栏底部常驻一行「当前生效」**：中文、西文、字号、终端四项摘要，不切域也能确认现在跑的是什么。
+- **底部动作条固定**：「应用并保存」改成主题色实心按钮，「恢复默认」保留描边。状态行跟着动作条走，不随内容滚动。
+- **复选框全部换成胶囊开关**：32×18 轨道 + 14px 滑块，开启时轨道用 `--dsw-alias-brand-primary`；带 `role="switch"`、`aria-checked`，空格与回车均可切换。
+
+### 新增设置域
+
+- **字距与字形**：`letterSpacing`（em，负值更紧）、`fontWeight`（0 = 用 DSH 自己的字重）、五个 OpenType 特性开关（`calt` / `case` / `tnum` / `ss01` / `cv11`），每项带一句人话说明。
+- **终端**：`terminalFollowCode`（跟随代码字体）、`terminalFontFamily`、`terminalFontSize`、`terminalLetterSpacing`、`terminalLigatures`。
+
+### 终端字体的技术约束（写进代码注释与面板提示）
+
+侧栏终端是 `dsh-better-sidebar` 内联的 xterm，创建时这样取参数：
+
+```js
+new Terminal({ fontFamily: getComputedStyle(node).fontFamily, fontSize: 13 })
+```
+
+三条结论：
+
+1. 字体族通过**终端容器的计算样式**读取，所以只能改容器（`div:has(> .xterm)`），改 `.xterm` 本身没用
+2. 只在创建时读一次，**已打开的终端必须关掉标签重开**才生效
+3. 字号写死 13px，覆盖它有度量错位风险，因此做成默认关闭的实验项
+
+另外，DSH 设置里的终端字体写的是 `--dsh-font-family-terminal`，但 xterm 不读这个变量，所以那份设置在当前界面里不生效——这也是本插件接管终端字体的理由。
+
+### 面板尺寸
+
+`324×76vh` → **`560×420`**，`display` 由 `block` 改为 `flex`（纵向三段：标题 / 工作台 / 动作条）。
+
 ## 0.2.3 — 2026-11-17
 
 ### 改进

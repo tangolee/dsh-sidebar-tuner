@@ -254,12 +254,14 @@ const UI_SCRIPT = `(() => {
 
   // ── 面板 ────────────────────────────────────────────────────
   const panel = el('div', {
+    'data-dst-panel': '1',
     style: {
-      position: 'fixed', left: '64px', bottom: '12px', width: '324px',
-      maxHeight: '76vh', overflowY: 'auto', padding: '14px', borderRadius: '12px',
+      position: 'fixed', left: '64px', bottom: '12px', width: '560px', height: '420px',
+      overflow: 'hidden', padding: '14px', borderRadius: '12px',
       border: '1px solid rgba(127,127,127,.3)', background: 'var(--dsw-alias-bg-base, #fff)',
       color: 'inherit', fontSize: '12px', lineHeight: '1.5', zIndex: '9999',
-      display: 'none', boxShadow: '0 10px 30px rgba(0,0,0,.18)', fontFamily: 'inherit',
+      display: 'none', flexDirection: 'column', boxSizing: 'border-box',
+      boxShadow: '0 10px 30px rgba(0,0,0,.18)', fontFamily: 'inherit',
     },
   });
   const header = el('div', {
@@ -341,46 +343,64 @@ const UI_SCRIPT = `(() => {
     return { wrap, row, hint: hintNode };
   };
 
-  // 分组：标题可点，点一下收起/展开。顺序按「改东西的顺序」排：
-  // 侧栏字体 → 侧栏排版 → 侧栏布局 → 入口图标 → 对话区字体 → 高级。
-  // 默认只把「高级」收起来，别的都展开。
-  let sectionCount = 0;
-  const sectionOf = (title, opts) => {
-    const first = sectionCount === 0;
-    sectionCount += 1;
-    let open = !(opts && opts.collapsed);
-    const wrap = el('div', { style: { margin: '0' } });
-    const head = el('div', {
+  /**
+   * 胶囊开关：真身还是一个隐藏的 checkbox，
+   * 这样 fill / collect 里读 `.checked` 的逻辑一行都不用改。
+   */
+  const PILL_SYNCS = [];
+  const pillOf = (box) => {
+    const pill = el('span', {
+      role: 'switch',
+      tabindex: '0',
+      'data-dst-pill': '1',
       style: {
-        display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-        margin: first ? '0 0 2px' : '10px 0 2px',
-        paddingTop: first ? '0' : '8px',
-        borderTop: first ? '0' : '1px solid rgba(127,127,127,.18)',
-        fontSize: '11px', fontWeight: '600', letterSpacing: '.02em',
-        color: 'var(--dsw-alias-label-secondary, #666)',
-        userSelect: 'none',
+        flex: '0 0 auto', width: '32px', height: '18px', borderRadius: '999px',
+        position: 'relative', cursor: 'pointer', display: 'inline-block',
+        background: 'var(--dsw-alias-interactive-bg, rgba(127,127,127,.28))',
+        transition: 'background 160ms cubic-bezier(.2,.8,.2,1)',
+        boxSizing: 'border-box', verticalAlign: 'middle',
       },
     });
-    const arrow = el('span', { style: { width: '10px', flex: 'none', opacity: '.7' } });
-    head.appendChild(arrow);
-    head.appendChild(el('span', { text: title }));
-    const body = el('div', { style: { paddingTop: '4px' } });
+    const knob = el('span', {
+      style: {
+        position: 'absolute', top: '2px', left: '2px', width: '14px', height: '14px',
+        borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.25)',
+        transition: 'transform 160ms cubic-bezier(.2,.8,.2,1)',
+        display: 'block', pointerEvents: 'none',
+      },
+    });
+    pill.appendChild(knob);
+    box.style.display = 'none';
     const sync = () => {
-      arrow.textContent = open ? '▾' : '▸';
-      body.style.display = open ? '' : 'none';
-      head.setAttribute('aria-expanded', open ? 'true' : 'false');
+      const on = Boolean(box.checked);
+      pill.setAttribute('aria-checked', on ? 'true' : 'false');
+      pill.style.background = on
+        ? 'var(--dsw-alias-brand-primary, #4176e6)'
+        : 'var(--dsw-alias-interactive-bg, rgba(127,127,127,.28))';
+      knob.style.transform = on ? 'translateX(14px)' : 'none';
     };
-    head.setAttribute('role', 'button');
-    head.setAttribute('data-dst-section', title);
-    wrap.setAttribute('data-dst-group', title);
-    head.addEventListener('click', () => { open = !open; sync(); });
-    head.addEventListener('mouseenter', () => { head.style.color = 'var(--dsw-alias-label-primary, #333)'; });
-    head.addEventListener('mouseleave', () => { head.style.color = 'var(--dsw-alias-label-secondary, #666)'; });
+    const toggle = () => { box.checked = !box.checked; box.dispatchEvent(new Event('change')); sync(); };
+    pill.addEventListener('click', toggle);
+    pill.addEventListener('keydown', (event) => {
+      if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); toggle(); }
+    });
+    box.addEventListener('change', sync);
+    PILL_SYNCS.push(sync);
     sync();
-    wrap.appendChild(head);
+    return pill;
+  };
+
+  const SECTIONS = [];
+
+  // 分组：内容不再直接堆进面板，而是登记成「域」，
+  // 由左侧导航切换（同一时刻只挂一个域的 DOM，所以不需要上下滚动）。
+  const sectionOf = (title, opts) => {
+    const wrap = el('div', { style: { margin: '0' }, 'data-dst-section': title });
+    const body = el('div', { style: { paddingTop: '2px' } });
     wrap.appendChild(body);
-    panel.appendChild(wrap);
-    return { wrap, head, body };
+    const entry = { title, wrap, body, collapsed: Boolean(opts && opts.collapsed) };
+    SECTIONS.push(entry);
+    return entry;
   };
 
   // 装了的打勾加粗，没装的标「未安装」并压成灰斜体：原生下拉只认一部分
@@ -439,15 +459,15 @@ const UI_SCRIPT = `(() => {
   secFont.body.appendChild(enField.wrap);
 
   const fbField = fieldOf('回退字体', '没装时依次回退。');
-  const fbWrap = el('div', { style: { flex: '1 1 auto', display: 'flex', flexWrap: 'wrap', gap: '8px' } });
+  const fbWrap = el('div', { style: { flex: '1 1 auto', display: 'flex', flexWrap: 'wrap', gap: '10px 14px' } });
   const fbBoxes = {};
   for (const name of FALLBACKS) {
-    const wrap = el('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' } });
     const box = el('input', { type: 'checkbox' });
     box.style.margin = '0';
-    wrap.appendChild(box);
-    wrap.appendChild(el('span', { text: name }));
-    fbWrap.appendChild(wrap);
+    const cell = el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } });
+    cell.appendChild(pillOf(box));
+    cell.appendChild(el('span', { text: name, style: { fontSize: '11px' } }));
+    fbWrap.appendChild(cell);
     fbBoxes[name] = box;
   }
   fbField.row.appendChild(fbWrap);
@@ -478,7 +498,7 @@ const UI_SCRIPT = `(() => {
       if (window.__dstSetFlag) window.__dstSetFlag(FLAG_OF[f.key], box.checked);
       status.textContent = (box.checked ? '已开启' : '已关闭') + '（尚未保存）';
     });
-    field.row.appendChild(box);
+    field.row.appendChild(pillOf(box));
     boolInputs[f.key] = box;
     secLayout.body.appendChild(field.wrap);
   }
@@ -521,15 +541,15 @@ const UI_SCRIPT = `(() => {
   secContent.body.appendChild(cEnField.wrap);
 
   const cFbField = fieldOf('回退字体', '没装时依次回退。');
-  const contentFbWrap = el('div', { style: { flex: '1 1 auto', display: 'flex', flexWrap: 'wrap', gap: '8px' } });
+  const contentFbWrap = el('div', { style: { flex: '1 1 auto', display: 'flex', flexWrap: 'wrap', gap: '10px 14px' } });
   const contentFbBoxes = {};
   for (const name of FALLBACKS) {
-    const wrap = el('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' } });
     const box = el('input', { type: 'checkbox' });
     box.style.margin = '0';
-    wrap.appendChild(box);
-    wrap.appendChild(el('span', { text: name }));
-    contentFbWrap.appendChild(wrap);
+    const cell = el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } });
+    cell.appendChild(pillOf(box));
+    cell.appendChild(el('span', { text: name, style: { fontSize: '11px' } }));
+    contentFbWrap.appendChild(cell);
     contentFbBoxes[name] = box;
   }
   cFbField.row.appendChild(contentFbWrap);
@@ -565,18 +585,100 @@ const UI_SCRIPT = `(() => {
   cEnField.hint.textContent = fontCount(EN_FONTS);
   cCodeField.hint.textContent = fontCount(MONO_FONTS) + ' 代码块与行内代码。';
 
+  // ── 字距与字形（0.3.0 新增）────────────────────────────────
+  const secGlyph = sectionOf('字距与字形');
+  const glyphNums = {};
+  const GLYPH_NUMS = [
+    { key: 'letterSpacing', label: '字距 em', min: -0.05, max: 0.08, step: 0.005,
+      hint: '0 = 不改。负值更紧（Inter 官方建议 -0.011em），正值更松。' },
+    { key: 'fontWeight', label: '字重', min: 0, max: 900, step: 50,
+      hint: '0 = 用 DSH 自己的字重。450 这类中间值需要可变字体（Inter Variable）。' },
+  ];
+  for (const f of GLYPH_NUMS) {
+    const field = fieldOf(f.label, f.hint);
+    const input = el('input', { type: 'number', style: inputStyle });
+    input.min = f.min; input.max = f.max; input.step = f.step;
+    field.row.appendChild(input);
+    glyphNums[f.key] = input;
+    secGlyph.body.appendChild(field.wrap);
+  }
+  const FEATURES = [
+    { name: 'calt', label: 'calt 上下文替代', hint: '箭头、连写旁边会自动换字形' },
+    { name: 'case', label: 'case 标点对齐', hint: '全大写时括号与连字符上移到视觉中线' },
+    { name: 'tnum', label: 'tnum 等宽数字', hint: '数字占同样宽度，列表里的序号不再跳动' },
+    { name: 'ss01', label: 'ss01 风格集 1', hint: 'Inter 的替代字形集，视字体而定' },
+    { name: 'cv11', label: 'cv11 单层 a', hint: '把双层 a 换成单层，部分人更易读' },
+  ];
+  const featureBoxes = {};
+  const featField = fieldOf('OpenType 特性', '逐个开，互不冲突。字体不支持时无变化。');
+  const featWrap = el('div', { style: { flex: '1 1 auto', display: 'flex', flexDirection: 'column', gap: '8px' } });
+  for (const item of FEATURES) {
+    const box = el('input', { type: 'checkbox' });
+    box.style.margin = '0';
+    const cell = el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } });
+    cell.appendChild(pillOf(box));
+    cell.appendChild(el('span', { text: item.label, style: { fontSize: '11px', fontWeight: '500' } }));
+    cell.appendChild(el('span', { text: item.hint, style: { fontSize: '10px', color: 'var(--dsw-alias-label-tertiary, #888)' } }));
+    featWrap.appendChild(cell);
+    featureBoxes[item.name] = box;
+  }
+  featField.row.appendChild(featWrap);
+  secGlyph.body.appendChild(featField.wrap);
+
+  // ── 终端（0.3.0 新增）──────────────────────────────────────
+  const secTerm = sectionOf('终端');
+  const termFollowBox = el('input', { type: 'checkbox' });
+  const termField = fieldOf('跟随代码字体', '勾上时终端用「对话区 → 代码字体」，下面的字体选择失效。');
+  termField.row.appendChild(pillOf(termFollowBox));
+  secTerm.body.appendChild(termField.wrap);
+
+  const termFontField = fieldOf('终端字体', '只作用于终端，不影响代码块。');
+  const termFontSelect = buildSelect(MONO_FONTS, '');
+  termFontField.row.appendChild(termFontSelect);
+  secTerm.body.appendChild(termFontField.wrap);
+
+  const termNums = {};
+  const TERM_NUMS = [
+    { key: 'terminalFontSize', label: '终端字号 px', min: 0, max: 20, step: 1,
+      hint: '实验项：xterm 内部写死 13px，改了字号可能让选区错位，0 = 关闭。' },
+    { key: 'terminalLetterSpacing', label: '终端字距 px', min: 0, max: 4, step: 0.5,
+      hint: '实验项：同样只在终端新建时读取，0 = 关闭。' },
+  ];
+  for (const f of TERM_NUMS) {
+    const field = fieldOf(f.label, f.hint);
+    const input = el('input', { type: 'number', style: inputStyle });
+    input.min = f.min; input.max = f.max; input.step = f.step;
+    field.row.appendChild(input);
+    termNums[f.key] = input;
+    secTerm.body.appendChild(field.wrap);
+  }
+  const termLigField = fieldOf('连字', '把 -> 、=> 连成箭头。字体不支持时无变化。');
+  const termLigBox = el('input', { type: 'checkbox' });
+  termLigField.row.appendChild(pillOf(termLigBox));
+  secTerm.body.appendChild(termLigField.wrap);
+
+  const termNote = el('div', {
+    text: '⚠ 字体族改动只对「新打开的终端」生效。已开的标签请关闭后重新打开 —— xterm 只在创建时读一次容器字体。',
+    style: {
+      marginTop: '4px', fontSize: '10px', lineHeight: '1.5',
+      color: 'var(--dsw-alias-label-tertiary, #888)',
+    },
+  });
+  secTerm.body.appendChild(termNote);
+  termFontField.hint.textContent = fontCount(MONO_FONTS);
+
   // ── 高级 ────────────────────────────────────────────────────
   const secAdvanced = sectionOf('高级：不改字体的区域', { collapsed: true });
   const keepField = fieldOf('勾选保护', '勾上的位置保持原字号。');
   const keepBoxes = {};
-  const keepPanel = el('div', { style: { flex: '1 1 auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
+  const keepPanel = el('div', { style: { flex: '1 1 auto', display: 'flex', flexDirection: 'column', gap: '8px' } });
   for (const preset of KEEP_PRESETS) {
-    const wrap = el('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } });
     const box = el('input', { type: 'checkbox' });
     box.style.margin = '0';
-    wrap.appendChild(box);
-    wrap.appendChild(el('span', { text: preset.label }));
-    keepPanel.appendChild(wrap);
+    const cell = el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } });
+    cell.appendChild(pillOf(box));
+    cell.appendChild(el('span', { text: preset.label, style: { fontSize: '11px' } }));
+    keepPanel.appendChild(cell);
     keepBoxes[preset.selector] = box;
   }
   keepField.row.appendChild(keepPanel);
@@ -647,6 +749,34 @@ const UI_SCRIPT = `(() => {
     contentLhInput.value = state.contentLineHeight ? String(state.contentLineHeight) : '';
     setSelectValue(contentCodeSelect, state.contentCodeFont);
     contentCodeSizeInput.value = state.contentCodeFontSize ? String(state.contentCodeFontSize) : '';
+
+    // 0.3.0 新增域
+    glyphNums.letterSpacing.value = state.letterSpacing ? String(state.letterSpacing) : '';
+    glyphNums.fontWeight.value = state.fontWeight ? String(state.fontWeight) : '';
+    const feats = Array.isArray(state.fontFeatures) ? state.fontFeatures : [];
+    for (const item of FEATURES) featureBoxes[item.name].checked = feats.indexOf(item.name) >= 0;
+    termFollowBox.checked = state.terminalFollowCode !== false;
+    setSelectValue(termFontSelect, state.terminalFontFamily);
+    termNums.terminalFontSize.value = state.terminalFontSize ? String(state.terminalFontSize) : '';
+    termNums.terminalLetterSpacing.value = state.terminalLetterSpacing ? String(state.terminalLetterSpacing) : '';
+    termLigBox.checked = state.terminalLigatures === true;
+
+    // 程序写值不会触发 change，胶囊要手动同步一次
+    for (const sync of PILL_SYNCS) sync();
+
+    // 左栏底部的「当前生效」摘要：不切域也能一眼看到关键三项
+    if (summary) {
+      const zhName = state.fontFamilyZh || '跟随 DSH';
+      const enName = state.fontFamilyEn || '跟随 DSH';
+      const sizeName = state.fontSize
+        ? state.fontSize + 'px'
+        : (state.fontScale && state.fontScale !== 1 ? '×' + state.fontScale : '跟随 DSH');
+      const termName = state.terminalFollowCode === false
+        ? (state.terminalFontFamily || '未指定')
+        : '跟随代码字体';
+      summary.style.whiteSpace = 'pre-line';
+      summary.textContent = '中文 ' + zhName + '\n西文 ' + enName + '\n字号 ' + sizeName + '\n终端 ' + termName;
+    }
   };
 
   const collect = () => {
@@ -676,6 +806,15 @@ const UI_SCRIPT = `(() => {
     out.contentLineHeight = contentLhInput.value === '' ? 0 : Number(contentLhInput.value);
     out.contentCodeFont = contentCodeSelect.value;
     out.contentCodeFontSize = contentCodeSizeInput.value === '' ? 0 : Number(contentCodeSizeInput.value);
+    // 0.3.0 新增域
+    out.letterSpacing = glyphNums.letterSpacing.value === '' ? 0 : Number(glyphNums.letterSpacing.value);
+    out.fontWeight = glyphNums.fontWeight.value === '' ? 0 : Number(glyphNums.fontWeight.value);
+    out.fontFeatures = FEATURES.filter((item) => featureBoxes[item.name].checked).map((item) => item.name);
+    out.terminalFollowCode = termFollowBox.checked;
+    out.terminalFontFamily = termFontSelect.value;
+    out.terminalFontSize = termNums.terminalFontSize.value === '' ? 0 : Number(termNums.terminalFontSize.value);
+    out.terminalLetterSpacing = termNums.terminalLetterSpacing.value === '' ? 0 : Number(termNums.terminalLetterSpacing.value);
+    out.terminalLigatures = termLigBox.checked;
     return out;
   };
 
@@ -704,23 +843,99 @@ const UI_SCRIPT = `(() => {
   };
 
   const actions = el('div', { style: { display: 'flex', gap: '8px', marginTop: '10px' } });
-  const mkBtn = (text, handler) => el('button', {
+  const mkBtn = (text, handler, primary) => el('button', {
     text,
     onclick: handler,
     style: {
       flex: '1 1 0', padding: '6px 8px', borderRadius: '7px', cursor: 'pointer',
-      border: '1px solid rgba(127,127,127,.35)', background: 'transparent',
-      color: 'inherit', fontSize: '12px',
+      border: primary ? '1px solid transparent' : '1px solid rgba(127,127,127,.35)',
+      background: primary ? 'var(--dsw-alias-brand-primary, #4176e6)' : 'transparent',
+      color: primary ? '#fff' : 'inherit',
+      fontWeight: primary ? '600' : '400',
+      fontSize: '12px',
     },
   });
-  actions.appendChild(mkBtn('应用并保存', save));
+  actions.appendChild(mkBtn('应用并保存', save, true));
   actions.appendChild(mkBtn('恢复默认', reset));
-  panel.appendChild(actions);
-  panel.appendChild(status);
+
+  // ── 两栏工作台：左侧域导航 + 右侧内容 + 底部固定动作条 ─────────
+  const workbench = el('div', {
+    style: { display: 'flex', flex: '1 1 auto', minHeight: '0', gap: '0', marginTop: '2px' },
+  });
+  const navcol = el('div', {
+    'data-dst-nav': '1',
+    style: {
+      flex: '0 0 128px', display: 'flex', flexDirection: 'column', gap: '2px',
+      padding: '2px 8px 2px 0', overflowY: 'auto',
+      borderRight: '1px solid rgba(127,127,127,.18)',
+    },
+  });
+  const content = el('div', {
+    'data-dst-content': '1',
+    style: { flex: '1 1 auto', minWidth: '0', overflowY: 'auto', padding: '2px 0 2px 12px' },
+  });
+  workbench.appendChild(navcol);
+  workbench.appendChild(content);
+
+  const summary = el('div', {
+    style: {
+      marginTop: 'auto', paddingTop: '10px', fontSize: '10px', lineHeight: '1.6',
+      color: 'var(--dsw-alias-label-tertiary, #888)', borderTop: '1px solid rgba(127,127,127,.14)',
+    },
+  });
+
+  let activeIndex = 0;
+  const navButtons = [];
+  const showSection = (index) => {
+    activeIndex = index;
+    content.textContent = '';
+    content.scrollTop = 0;
+    content.appendChild(SECTIONS[index].wrap);
+    navButtons.forEach((button, i) => {
+      const on = i === index;
+      button.style.background = on ? 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.16))' : 'transparent';
+      button.style.color = on ? 'var(--dsw-alias-label-primary, inherit)' : 'var(--dsw-alias-label-secondary, #666)';
+      button.style.fontWeight = on ? '600' : '400';
+      button.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  };
+  SECTIONS.forEach((entry, index) => {
+    const button = el('button', {
+      text: entry.title,
+      style: {
+        textAlign: 'left', padding: '6px 8px', borderRadius: 'var(--dsw-radius-md, 7px)',
+        border: '0', background: 'transparent', cursor: 'pointer', fontSize: '12px',
+        color: 'var(--dsw-alias-label-secondary, #666)', whiteSpace: 'nowrap',
+        overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'inherit',
+      },
+    });
+    button.addEventListener('click', () => showSection(index));
+    button.addEventListener('mouseenter', () => {
+      if (activeIndex !== index) button.style.background = 'var(--dsw-alias-interactive-bg, rgba(127,127,127,.10))';
+    });
+    button.addEventListener('mouseleave', () => {
+      if (activeIndex !== index) button.style.background = 'transparent';
+    });
+    navButtons.push(button);
+    navcol.appendChild(button);
+  });
+  navcol.appendChild(summary);
+
+  panel.appendChild(workbench);
+  const footer = el('div', {
+    style: {
+      flex: '0 0 auto', paddingTop: '8px', marginTop: '8px',
+      borderTop: '1px solid rgba(127,127,127,.18)',
+    },
+  });
+  footer.appendChild(actions);
+  footer.appendChild(status);
+  panel.appendChild(footer);
+  showSection(0);
 
   railBtn.addEventListener('click', async () => {
     const open = panel.style.display !== 'none';
-    panel.style.display = open ? 'none' : 'block';
+    panel.style.display = open ? 'none' : 'flex';
     if (open) return;
     try {
       const res = await fetch('/sidebar-tuner/state', { cache: 'no-store' }).then((r) => r.json());

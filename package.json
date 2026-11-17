@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-tuner",
-  "version": "0.2.3",
+  "version": "0.3.0-beta.1",
   "description": "DSH 桌面端侧栏与对话区排版：中英文字体（自动检测本机是否安装）、字号、行高、行距、图标列 + 会话列两栏布局、图标悬停名称、对话区与代码字体，配可视化设置面板。纯样式注入，不改动其它插件。",
   "type": "module",
   "main": "index.js",
