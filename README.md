@@ -81,8 +81,8 @@ DSH 桌面端 0.2.x，声明 `engines.dsh: >=0.2.0-rc.1 <0.3.0-0`，实测 0.2.2
 ## 更多
 
 - 完整配置项与注释示例：[examples/cordis.patch.example.yml](examples/cordis.patch.example.yml)
-- 源码结构、调试方法、为什么这么写：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-- 改动记录：[CHANGELOG.md](CHANGELOG.md)
+- 每个版本改了什么：[Releases](https://github.com/tangolee/dsh-sidebar-tuner/releases)
+- 老版本：[0.2.x](https://github.com/tangolee/dsh-sidebar-tuner/tree/v0.2.3)
 
 ## 许可
 
