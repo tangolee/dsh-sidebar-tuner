@@ -22,29 +22,35 @@ DSH 自带的「设置 → 外观 → 字号」只管对话内容区，左侧栏
 
 ## 安装
 
-两种形态，按你手上有没有源码选：
+三种方式，挑一种就行。装完都要**完全退出 DSH（连托盘图标一起退）再打开**。
 
-**A. 有源码（开发机、自己改插件的情况）**
+### 1. 插件市场
 
-指向源码目录，改完重启就生效，不用重新打包：
+在 DSH 里打开插件市场（dsh-market），搜 `dsh-sidebar-tuner`，点安装。一条命令都不用敲。
 
-```powershell
-cd "$env:USERPROFILE\.dsh\profiles\desktop"
-corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"
-```
+> 市场条目还在审核收录，搜不到时用下面两种。
 
-**B. 没有源码（只想用）**
-
-装 npm 上的最新版（当前 `0.3.0`）：
+### 2. npm
 
 ```powershell
 cd "$env:USERPROFILE\.dsh\profiles\desktop"
 corepack pnpm@11 add dsh-sidebar-tuner
 ```
 
-两种都要在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`，然后**完全退出 DSH（连托盘图标一起退）再打开**。
+装完在这份 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-sidebar-tuner"`。想锁版本写 `dsh-sidebar-tuner@0.3.0`。
 
-> 想锁版本写 `dsh-sidebar-tuner@0.3.0`；想跟仓库最新提交用 `corepack pnpm@11 add "github:tangolee/dsh-sidebar-tuner#main"`。
+### 3. GitHub
+
+跟仓库最新提交，或者 npm 用不了时走这条：
+
+```powershell
+cd "$env:USERPROFILE\.dsh\profiles\desktop"
+corepack pnpm@11 add "github:tangolee/dsh-sidebar-tuner#v0.3.0"
+```
+
+把 `#v0.3.0` 换成 `#main` 就是跟最新提交。装完同样要在 `dsh.profile.bundles` 里加 `"dsh-sidebar-tuner"`。
+
+> 自己改代码：`corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"`，改完重启就生效，不用重新打包。
 
 ## 怎么用
 
