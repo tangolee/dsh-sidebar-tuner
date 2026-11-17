@@ -30,7 +30,7 @@ https://github.com/tangolee/dsh-sidebar-tuner
 
 **设置 → 插件 → 添加插件 → 粘贴 → 安装 → 立即启用**，然后**完全退出 DSH（连托盘图标一起退）再打开**。
 
-这个链接装的是仓库最新提交。想要钉死的版本，用 Release 里打好的包：
+这个链接装的是仓库最新提交。想要固定下来的版本，用 Release 里打好的包：
 
 ```
 https://github.com/tangolee/dsh-sidebar-tuner/releases/download/v0.3.0/dsh-sidebar-tuner.tgz
