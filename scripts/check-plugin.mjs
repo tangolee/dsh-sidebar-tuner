@@ -57,7 +57,26 @@ if (open >= 0) {
   }
 }
 
-console.log('\n== 配置与样式生成 ==');
+console.log('\n== 宿主下发文本（关键：不是源码原文）==');
+{
+  const { collectPayload } = await import('./lib/payload.mjs');
+  const payload = await collectPayload();
+  check('拿到下发的面板脚本', payload.uiScript.length > 1000, payload.uiScript.length + ' 字节');
+  let parseOk = true;
+  try { new Function(payload.uiScript); } catch (error) { parseOk = false; check('下发脚本可解析', false, String(error.message).split('\n')[0]); }
+  if (parseOk) check('下发脚本可解析', true);
+  check('下发脚本不含 </script', !payload.uiScript.includes('</script'));
+  check('下发脚本不含孤零零的反引号', (payload.uiScript.split('`').length - 1) === 0);
+  // 模板字符串里的 \n 与 \s 被宿主提前解释过，这里直接看有没有断行残骸
+  check('下发脚本无字符串内换行（\\n 未双重转义）', !/'\s*[\u4e00-\u9fa5][^']*\n/.test(payload.uiScript));
+  let inlineOk = true;
+  for (const text of payload.inlineScripts) {
+    try { new Function(text); } catch (error) { inlineOk = false; check('内联脚本可解析', false, String(error.message).split('\n')[0]); break; }
+  }
+  if (inlineOk) check('内联脚本可解析', true, payload.inlineScripts.length + ' 段');
+  check('开关脚本含 canary 探针', payload.inlineScripts.some((text) => text.includes("stage:'canary'")));
+}
+
 try {
   const css = await import('file:///' + path.join(root, 'css.js').replace(/\\/g, '/'));
   const keys = Object.keys(css.DEFAULTS);

@@ -24,6 +24,8 @@
         rowGap: 2
 
         # ── 内容区（对话）──────────────────────────────────────
+        # 原始字体栈覆盖（非空则优先于下面的三段式，yml 专属，面板不暴露）
+        contentFont: ''
         # 中英文分段字体；留空 = 跟随 DSH「设置 → 外观」里的文字字体
         contentFontZh: ''
         contentFontEn: ''
@@ -84,6 +86,9 @@
         pushContent: true
         # 调试：开启后页面加载会把侧栏真实 DOM 结构回传到 probe.jsonl（排查完记得关）
         debugDump: false
+
+        # 是否注入设置面板本身（false = 只上样式，藏掉入口与面板；yml 专属）
+        settingsUi: true
 
         # 叠层 z-index 基准
         zIndex: 30

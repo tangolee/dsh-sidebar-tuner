@@ -210,17 +210,17 @@ export function buildCss(input) {
   // ── 5.5 「侧栏设置」入口：悬浮高亮 + 文字字号 ─────────────────────
   // 该入口由 UI 脚本插进 nav，带固定 id，因此不受插入位置影响。
   // 位置选择器（div:last-child）只在临时兜底时使用。
-  rules.push(`#dst-rail-entry{
+  rules.push(`[data-dst-active] #dst-rail-entry{
   border-radius:var(--dsw-radius-md, 8px) !important;
   border-left:var(--dsh-sidebar-paint-inset, 3px) solid transparent !important;
   border-right:var(--dsh-sidebar-paint-inset, 3px) solid transparent !important;
   background-clip:padding-box !important;
   transition:background-color .12s ease;
 }`);
-  rules.push(`#dst-rail-entry:hover{
+  rules.push(`[data-dst-active] #dst-rail-entry:hover{
   background-color:var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.16)) !important;
 }`);
-  rules.push(`#dst-rail-entry > span{
+  rules.push(`[data-dst-active] #dst-rail-entry > span{
   font-size:inherit !important;
   line-height:inherit !important;
   letter-spacing:inherit !important;
@@ -526,6 +526,25 @@ ${win} [class*="_panelEntry"]{
   if (c.terminalLigatures === true) {
     rules.push(`.xterm{font-feature-settings:"calt" 1, "liga" 1 !important}`);
   }
+  // ── 11. 设置面板自身的度量 ─────────────────────────────────────────
+  // 面板的排版参数放在这里（而不是写死在注入脚本里）：
+  // 这一段随 live.css 热加载，改完 1.5 秒内生效，不用重启 DSH。
+  rules.push(`[data-dst-panel]{
+  --dst-panel-w:720px;
+  --dst-panel-h:560px;
+  --dst-pad:22px;
+  --dst-nav-w:168px;
+  --dst-nav-gap:3px;
+  --dst-nav-pad-y:9px;
+  --dst-row-gap:18px;
+  --dst-label-w:140px;
+  --dst-body-fs:13px;
+  --dst-hint-fs:11px;
+  --dst-hint-gap:5px;
+  --dst-content-pad:22px;
+  --dst-panel-radius:14px;
+}`);
+
   return rules.join('\n');
 }
 

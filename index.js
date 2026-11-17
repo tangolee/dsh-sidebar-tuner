@@ -14,12 +14,81 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildCss, DEFAULTS } from './css.js';
 
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
 const OVERRIDE_PATH = path.join(PLUGIN_DIR, 'override.json');
 const LIVE_PATH = path.join(PLUGIN_DIR, 'live.css');
+
+/**
+ * 把注册表里的「字面名」收敛成「字族名」。
+ * 例：Inter SemiBold Italic → Inter；Microsoft YaHei UI Bold → Microsoft YaHei UI
+ * 刻意不剥 Display / Variable / Text —— 它们本身就是不同字族（Inter Display 等）。
+ */
+const FACE_STYLE = /\s*(?:&.*)?$/;
+const STYLE_WORDS = /[\s,]+(?:Thin|ExtraLight|UltraLight|SemiLight|DemiLight|Light|Regular|Normal|Book|Roman|Medium|SemiBold|DemiBold|Bold|ExtraBold|UltraBold|Black|Heavy|Italic|Oblique)\s*$/i;
+
+function familyOfFace(face) {
+  let name = String(face || '').replace(/\s*\((?:TrueType|OpenType|All res)\)\s*$/i, '').trim();
+  // 注册表里常见 "Arial Bold & Arial Italic" 这种合并项，取前半段
+  name = name.split('&')[0].replace(FACE_STYLE, '').trim();
+  for (let i = 0; i < 4; i += 1) {
+    const next = name.replace(STYLE_WORDS, '').trim();
+    if (next === name || !next) break;
+    name = next;
+  }
+  return name;
+}
+
+/** 枚举本机已安装字体族。非 Windows 返回空数组，由前端退回预设列表。 */
+function listSystemFonts() {
+  if (process.platform !== 'win32') return [];
+  const keys = [
+    'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',
+    'HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',
+  ];
+  const families = new Map();
+  // 中文 Windows 上 reg 的输出是 GBK，直接按 utf8 读会把中文名解成乱码，
+  // 所以先拿原始 buffer，再用 GBK 解码（Node 内置 ICU 支持）。
+  const decoder = new TextDecoder('gbk', { fatal: false });
+  for (const key of keys) {
+    let raw = null;
+    try {
+      raw = execFileSync('reg', ['query', key], {
+        windowsHide: true, timeout: 8000, maxBuffer: 8 * 1024 * 1024,
+      });
+    } catch { continue; }
+    const text = decoder.decode(raw);
+    for (const line of text.split(/\r?\n/)) {
+      // 形如：    Inter SemiBold (TrueType)    REG_SZ    Inter-SemiBold.ttf
+      const match = line.match(/^\s{4}(.+?)\s{2,}REG_SZ\s{2,}(\S.*)$/);
+      if (!match) continue;
+      const fileName = match[2].trim();
+      // @ 开头的是竖排变体，重复项，跳过
+      if (fileName.startsWith('@')) continue;
+      const family = familyOfFace(match[1]);
+      if (!family || family.length < 2) continue;
+      // 丢掉解不出来的怪字符、纯数字开头与竖排残片，避免列表里出现乱码项
+      if (/[\uFFFD\u0000-\u001F]/.test(family)) continue;
+      if (!/[\p{L}]/u.test(family)) continue;
+      families.set(family.toLowerCase(), family);
+    }
+  }
+  return [...families.values()].sort((left, right) => left.localeCompare(right, 'en'));
+}
+
+// 枚举一次约 30~80ms，缓存 60 秒足够：装字体本来就少见。
+let fontListCache = { at: 0, fonts: [] };
+function systemFontsCached() {
+  const now = Date.now();
+  if (now - fontListCache.at < 60_000 && fontListCache.fonts.length > 0) return fontListCache.fonts;
+  let fonts = [];
+  try { fonts = listSystemFonts(); } catch { fonts = []; }
+  fontListCache = { at: now, fonts };
+  return fonts;
+}
 
 function resolveHome(ctx) {
   try {
@@ -38,9 +107,18 @@ function isLoopback(address) {
 
 function writeProbe(home, payload) {
   const dir = path.join(home, 'sidebar-tuner');
+  const file = path.join(dir, 'probe.jsonl');
   fs.mkdirSync(dir, { recursive: true });
+  // 上限 512KB：超了就只保留最后 200 行再追加，避免长期运行把文件堆成几十兆
+  const LIMIT = 512 * 1024;
+  try {
+    if (fs.existsSync(file) && fs.statSync(file).size > LIMIT) {
+      const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).slice(-200);
+      fs.writeFileSync(file, lines.join('\n') + '\n', 'utf8');
+    }
+  } catch { /* 截断失败不影响本次写入 */ }
   fs.appendFileSync(
-    path.join(dir, 'probe.jsonl'),
+    file,
     `${JSON.stringify({ at: new Date().toISOString(), ...payload })}\n`,
     'utf8',
   );
@@ -91,6 +169,8 @@ const UI_SCRIPT = `(() => {
   const LAYOUT_NUMS = [
     { key: 'railWidth',  label: '图标列宽 px', min: 40, max: 96, step: 2,
       hint: '图标列宽度，40–96。' },
+    { key: 'panelWidth', label: '会话列宽 px', min: 180, max: 420, step: 4,
+      hint: '并排布局里右侧会话列的宽度，180–420。' },
   ];
   const BOOL_FIELDS = [
     { key: 'compactLayout', label: '图标列+会话列并排',
@@ -101,6 +181,9 @@ const UI_SCRIPT = `(() => {
       hint: '折叠时把内容右推，不覆盖。' },
     { key: 'railTooltips',  label: '图标悬停显示名称',
       hint: '鼠标停上去浮出图标名字。' },
+    // 这一项要重算 CSS 才生效，没有对应的 <html> 属性开关：保存后生效
+    { key: 'searchInRail',  label: '搜索框并入图标列',
+      hint: '常态一个图标宽，聚焦后向右展开；保存后生效。' },
   ];
   // 「不改字体的区域」的可勾选项。选择器是给 CSS 用的，勾选框是给人用的。
   const KEEP_PRESETS = [
@@ -181,6 +264,8 @@ const UI_SCRIPT = `(() => {
       alignItems: 'center', justifyContent: 'center', gap: '0',
       cursor: 'pointer', color: 'inherit',
       marginTop: '4px', boxSizing: 'border-box',
+      // Windows 上标题栏区域默认是窗口拖动区，会把点击吃掉
+      webkitAppRegion: 'no-drag',
       // 和 panelEntry 一致：圆角 + 两侧透明内描边（DSH 的高亮是画在这个内缩区域上的）
       borderRadius: 'var(--dsw-radius-md, 8px)',
       borderLeft: 'var(--dsh-sidebar-paint-inset, 3px) solid transparent',
@@ -249,21 +334,68 @@ const UI_SCRIPT = `(() => {
    * 理由：panelList 是 overflow:auto，宿主自己会在末尾放一个「更多」锚点；
    * 追加在最末时，插件一多，我们的入口就被挤到可视区外，看起来像"按钮消失了"。
    */
+  const sidebarRoot = (nav) => document.querySelector('[class*="_sidebarCol"]')
+    || (nav && nav.closest('[class*="_root"]'))
+    || (nav && nav.parentElement && nav.parentElement.parentElement);
   const attachRail = () => {
     const nav = document.querySelector('[class*="_panelList"]');
     if (!nav) return;
+    // 标记宿主侧栏根：样式作用域与排查都靠它，卸载时删掉即复原
+    const root = sidebarRoot(nav);
+    if (root && root.getAttribute('data-dst-active') !== '1') root.setAttribute('data-dst-active', '1');
     if (railBtn.parentElement === nav) return;
     const anchor = nav.querySelector('[class*="moreAnchor"]');
     if (anchor && anchor.parentElement === nav) nav.insertBefore(railBtn, anchor);
     else nav.appendChild(railBtn);
+    // 挂上了就把兜底浮标撤掉，避免两个入口并存
+    const floating = document.getElementById('dst-float-entry');
+    if (floating && floating.parentElement) floating.remove();
     // 标签跟着邻居字号走；这里失败也不能影响入口本身
     try { syncLabel(false); } catch { /* 忽略 */ }
   };
   attachRail();
-  setInterval(attachRail, 1000);
+
+  /**
+   * 用 MutationObserver 替代 1 秒轮询。
+   * 只有宿主真的改了 DOM 才用 rAF 合并检查一次，并且忽略我们自己子树的变动
+   * ——否则「我们插节点 → 触发观察器 → 再插」会自己打自己。
+   */
+  const isOwnNode = (node) => {
+    if (!node) return false;
+    const element = node.nodeType === 1 ? node : node.parentElement;
+    if (!element || typeof element.closest !== 'function') return false;
+    return Boolean(element.closest('#dst-rail-entry, [data-dst-panel], [data-dst-float-entry], [data-dst-font-pop]'));
+  };
+  let railScheduled = false;
+  const scheduleRailCheck = () => {
+    if (railScheduled) return;
+    railScheduled = true;
+    const run = () => { railScheduled = false; attachRail(); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 16);
+  };
+  const startObserver = () => {
+    if (typeof MutationObserver !== 'function' || !document.body) return;
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (isOwnNode(record.target)) continue;
+        if (record.type === 'childList' && !record.addedNodes.length && !record.removedNodes.length) continue;
+        scheduleRailCheck();
+        return;
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  };
 
   // 出问题要能自己报上来：桌面端没有控制台可看，只能把错误写回宿主。
+  // 上报节流：同类错误 10 秒内只报一次，免得一个渲染循环把 probe.jsonl 刷满
+  const reportedAt = new Map();
   const reportError = (payload) => {
+    const fingerprint = String((payload && payload.stage) || '') + '|' + String((payload && payload.message) || '');
+    const now = Date.now();
+    if (now - (reportedAt.get(fingerprint) || 0) < 10_000) return;
+    reportedAt.set(fingerprint, now);
+    if (reportedAt.size > 50) reportedAt.clear();
     try {
       fetch('/sidebar-tuner/probe', {
         method: 'POST',
@@ -311,23 +443,28 @@ const UI_SCRIPT = `(() => {
   const panel = el('div', {
     'data-dst-panel': '1',
     style: {
-      position: 'fixed', left: '64px', bottom: '12px', width: '560px', height: '420px',
-      overflow: 'hidden', padding: '14px', borderRadius: '12px',
+      // 尺寸与内距走 CSS 变量：改 live.css 即可热调，不必重启 DSH
+      position: 'fixed', left: '64px', bottom: '14px',
+      width: 'var(--dst-panel-w, 720px)', height: 'var(--dst-panel-h, 560px)',
+      maxWidth: 'calc(100vw - 96px)', maxHeight: 'calc(100vh - 120px)',
+      overflow: 'hidden', padding: 'var(--dst-pad, 22px)',
+      borderRadius: 'var(--dst-panel-radius, 14px)',
       border: '1px solid rgba(127,127,127,.3)', background: 'var(--dsw-alias-bg-base, #fff)',
-      color: 'inherit', fontSize: '12px', lineHeight: '1.5', zIndex: '9999',
+      color: 'inherit', fontSize: 'var(--dst-body-fs, 13px)', lineHeight: '1.5', zIndex: '9999',
       display: 'none', flexDirection: 'column', boxSizing: 'border-box',
-      boxShadow: '0 10px 30px rgba(0,0,0,.18)', fontFamily: 'inherit',
+      boxShadow: '0 16px 40px rgba(0,0,0,.2)', fontFamily: 'inherit',
     },
   });
   const header = el('div', {
     style: {
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      gap: '8px', marginBottom: '10px',
+      gap: '10px', marginBottom: '16px', paddingBottom: '12px',
+      borderBottom: '1px solid rgba(127,127,127,.14)',
     },
   });
   header.appendChild(el('div', {
-    text: '侧栏外观',
-    style: { fontSize: '13px', fontWeight: '600' },
+    text: '侧栏样式及字体设置',
+    style: { fontSize: 'calc(var(--dst-body-fs, 13px) + 2px)', fontWeight: '600', letterSpacing: '.01em' },
   }));
   const closeBtn = el('button', {
     text: '×',
@@ -375,24 +512,32 @@ const UI_SCRIPT = `(() => {
   setInterval(compatCheck, 30000);
 
   const inputStyle = {
-    flex: '1 1 auto', minWidth: '0', padding: '3px 6px', borderRadius: '6px',
+    flex: '1 1 auto', minWidth: '0', padding: '6px 10px', borderRadius: '7px',
     border: '1px solid rgba(127,127,127,.35)', background: 'transparent',
-    color: 'inherit', fontSize: '12px',
+    color: 'inherit', fontSize: 'calc(var(--dst-body-fs, 13px) - 0.5px)',
   };
   // 每个字段两行：上面「标签 + 控件」，下面一句人话说明。
   // 面板里全是 px、倍数和选择器，不解释一下没人知道改的是什么。
   const fieldOf = (label, hint) => {
-    const wrap = el('div', { style: { marginBottom: '9px' } });
-    const row = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
+    const wrap = el('div', { style: { marginBottom: 'var(--dst-row-gap, 18px)' } });
+    const row = el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } });
     row.appendChild(el('label', {
       text: label,
-      style: { flex: '0 0 108px', color: 'var(--dsw-alias-label-secondary, #666)' },
+      style: {
+        flex: '0 0 var(--dst-label-w, 140px)',
+        color: 'var(--dsw-alias-label-secondary, #666)',
+      },
     }));
     wrap.appendChild(row);
     // 说明行总是建出来：字体下拉那几项要在运行时把「已装 8/13」写进去
     const hintNode = el('div', {
       text: hint || '',
-      style: { marginTop: '2px', fontSize: '10px', lineHeight: '1.4', color: 'var(--dsw-alias-label-tertiary, #888)' },
+      style: {
+        marginTop: 'var(--dst-hint-gap, 5px)',
+        fontSize: 'var(--dst-hint-fs, 11px)',
+        lineHeight: '1.55',
+        color: 'var(--dsw-alias-label-tertiary, #888)',
+      },
     });
     wrap.appendChild(hintNode);
     return { wrap, row, hint: hintNode };
@@ -409,7 +554,7 @@ const UI_SCRIPT = `(() => {
       tabindex: '0',
       'data-dst-pill': '1',
       style: {
-        flex: '0 0 auto', width: '32px', height: '18px', borderRadius: '999px',
+        flex: '0 0 auto', width: '36px', height: '20px', borderRadius: '999px',
         position: 'relative', cursor: 'pointer', display: 'inline-block',
         background: 'var(--dsw-alias-interactive-bg, rgba(127,127,127,.28))',
         transition: 'background 160ms cubic-bezier(.2,.8,.2,1)',
@@ -418,7 +563,7 @@ const UI_SCRIPT = `(() => {
     });
     const knob = el('span', {
       style: {
-        position: 'absolute', top: '2px', left: '2px', width: '14px', height: '14px',
+        position: 'absolute', top: '2px', left: '2px', width: '16px', height: '16px',
         borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.25)',
         transition: 'transform 160ms cubic-bezier(.2,.8,.2,1)',
         display: 'block', pointerEvents: 'none',
@@ -432,7 +577,7 @@ const UI_SCRIPT = `(() => {
       pill.style.background = on
         ? 'var(--dsw-alias-brand-primary, #4176e6)'
         : 'var(--dsw-alias-interactive-bg, rgba(127,127,127,.28))';
-      knob.style.transform = on ? 'translateX(14px)' : 'none';
+      knob.style.transform = on ? 'translateX(16px)' : 'none';
     };
     const toggle = () => { box.checked = !box.checked; box.dispatchEvent(new Event('change')); sync(); };
     pill.addEventListener('click', toggle);
@@ -445,7 +590,206 @@ const UI_SCRIPT = `(() => {
     return pill;
   };
 
+  /**
+   * 字体选择器：按钮 + 可搜索浮层。
+   * 列表 = 预设（置顶）+ 宿主枚举出来的本机全部字族（/sidebar-tuner/fonts）。
+   * 每一项用该字体自己渲染样张，右侧标安装状态，所以同名不同观感（Inter / Inter Display）一眼可分。
+   */
+  let systemFonts = null;
+  const loadSystemFonts = async () => {
+    if (systemFonts) return systemFonts;
+    try {
+      const res = await fetch('/sidebar-tuner/fonts', { cache: 'no-store' }).then((r) => r.json());
+      systemFonts = Array.isArray(res && res.fonts) ? res.fonts : [];
+    } catch { systemFonts = []; }
+    return systemFonts;
+  };
+  const closeFontPops = () => {
+    activePop = null;
+    const nodes = document.querySelectorAll('[data-dst-font-pop]');
+    for (let i = 0; i < nodes.length; i += 1) nodes[i].remove();
+  };
+  // 当前打开的浮层：滚动时重新定位，而不是关掉。
+  // 曾经写成“滚动即关”，结果输入框自动聚焦触发的滚动把刚打开的浮层立刻关了。
+  let activePop = null;
+  const placePop = (pop, trigger) => {
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.max(300, Math.min(rect.width + 120, 420));
+    pop.style.width = width + 'px';
+    pop.style.left = Math.max(8, Math.min(rect.left, (window.innerWidth || 1280) - width - 8)) + 'px';
+    pop.style.top = Math.min(rect.bottom + 6, (window.innerHeight || 800) - 340) + 'px';
+  };
+  const repositionFontPops = () => {
+    if (!activePop || !activePop.node.parentElement) return;
+    const rect = activePop.trigger.getBoundingClientRect();
+    // 触发按钮被滚出可视区就收起来，否则跟着滚动重排位置
+    if (rect.bottom < 0 || rect.top > (window.innerHeight || 800)) { closeFontPops(); return; }
+    placePop(activePop.node, activePop.trigger);
+  };
+
+  // 字体名会进 inline style，先把可能破坏 CSS 的字符去掉
+  // 注意：这段在宿主模板字符串里，别在这里写反斜杠——会被宿主提前解释掉。
+  const safeFontName = (name) => String(name || '').replace(/["';{}<>]/g, '').trim();
+
+  const buildFontPicker = (presets, initial) => {
+    let value = initial || '';
+    let opening = false;
+    const wrap = el('div', {
+      'data-dst-font-picker': '1',
+      style: { position: 'relative', flex: '1 1 auto', minWidth: '0' },
+    });
+    const btn = el('button', {
+      type: 'button',
+      style: {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+        width: '100%', textAlign: 'left', cursor: 'pointer',
+        padding: '6px 10px', borderRadius: '7px',
+        border: '1px solid rgba(127,127,127,.35)', background: 'transparent',
+        color: 'inherit', fontSize: 'calc(var(--dst-body-fs, 13px) - 0.5px)', fontFamily: 'inherit',
+      },
+    });
+    const label = el('span', {
+      style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+    });
+    btn.appendChild(label);
+    btn.appendChild(el('span', { text: '▾', style: { opacity: '.55', flex: 'none' } }));
+    wrap.appendChild(btn);
+
+    const setValue = (next) => {
+      value = next || '';
+      label.textContent = value || '（不指定，跟随 DSH）';
+      // 已选字体用自身渲染，让按钮上就能看出效果
+      label.style.fontFamily = value ? '"' + safeFontName(value) + '", inherit' : 'inherit';
+    };
+    setValue(value);
+
+    const renderList = (pop, keyword) => {
+      const list = pop.querySelector('[data-dst-font-list]');
+      list.textContent = '';
+      const key = String(keyword || '').trim().toLowerCase();
+      const merged = [];
+      const seen = new Set();
+      const push = (name) => {
+        const low = name.toLowerCase();
+        if (seen.has(low)) return;
+        seen.add(low);
+        merged.push(name);
+      };
+      push('');
+      for (const name of presets) push(name);
+      for (const name of systemFonts || []) push(name);
+      const matched = merged.filter((name) => !key || !name || name.toLowerCase().includes(key));
+      const limit = 150;
+      const shown = matched.slice(0, limit);
+      for (const name of shown) {
+        const row = el('button', {
+          type: 'button',
+          style: {
+            display: 'flex', alignItems: 'center', gap: '10px', width: '100%', textAlign: 'left',
+            padding: '7px 10px', border: '0', background: 'transparent', cursor: 'pointer',
+            color: 'inherit', fontSize: '12px', fontFamily: 'inherit',
+          },
+        });
+        row.appendChild(el('span', {
+          text: name ? 'Aa 汉字 0123' : '（不指定，跟随 DSH）',
+          style: {
+            flex: '1 1 auto', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap', fontFamily: name ? '"' + safeFontName(name) + '", monospace' : 'inherit',
+          },
+        }));
+        if (name) {
+          row.appendChild(el('span', {
+            text: name,
+            style: { flex: '0 0 auto', fontSize: '10px', opacity: '.6', maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+          }));
+          const ok = available(name);
+          row.appendChild(el('span', {
+            text: ok ? '✓' : '?',
+            title: ok ? '已安装' : '未检测到，选中后会回退到下一个字体',
+            style: { flex: 'none', fontSize: '11px', opacity: ok ? '.85' : '.4' },
+          }));
+        }
+        row.addEventListener('click', () => { setValue(name); closeFontPops(); });
+        row.addEventListener('mouseenter', () => { row.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.16))'; });
+        row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
+        list.appendChild(row);
+      }
+      if (matched.length > shown.length) {
+        list.appendChild(el('div', {
+          text: '共 ' + matched.length + ' 个，只显示前 ' + shown.length + ' 个；继续输入缩小范围',
+          style: { padding: '8px 10px', fontSize: '10px', opacity: '.6' },
+        }));
+      }
+      if (matched.length === 0) {
+        list.appendChild(el('div', { text: '没有匹配的字体', style: { padding: '10px', fontSize: '11px', opacity: '.6' } }));
+      }
+    };
+
+    const openPop = async () => {
+      if (opening) return;            // 连点两次时避免挂出两个浮层
+      if (document.querySelector('[data-dst-font-pop]')) { closeFontPops(); return; }
+      opening = true;
+      try {
+        closeFontPops();
+        await loadSystemFonts();
+      const pop = el('div', {
+        'data-dst-font-pop': '1',
+        style: {
+          position: 'fixed', zIndex: '10000',
+          background: 'var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base, #fff))',
+          border: '1px solid rgba(127,127,127,.35)', borderRadius: '10px',
+          boxShadow: '0 14px 34px rgba(0,0,0,.24)', display: 'flex', flexDirection: 'column',
+          overflow: 'hidden', maxHeight: '320px', color: 'inherit',
+        },
+      });
+      placePop(pop, btn);
+      activePop = { node: pop, trigger: btn };
+
+      const search = el('input', {
+        type: 'text',
+        placeholder: '搜索本机字体…（共 ' + ((systemFonts || []).length + presets.length) + ' 个）',
+        style: {
+          margin: '8px', padding: '7px 10px', borderRadius: '7px', fontSize: '12px',
+          border: '1px solid rgba(127,127,127,.35)', background: 'transparent',
+          color: 'inherit', fontFamily: 'inherit', outline: 'none',
+        },
+      });
+      const list = el('div', {
+        'data-dst-font-list': '1',
+        style: { overflowY: 'auto', flex: '1 1 auto', paddingBottom: '6px' },
+      });
+      pop.appendChild(search);
+      pop.appendChild(list);
+      panel.appendChild(pop);
+      renderList(pop, '');
+      search.addEventListener('input', () => renderList(pop, search.value));
+      search.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') { event.stopPropagation(); closeFontPops(); }
+        if (event.key === 'Enter') {
+          const first = list.querySelector('button');
+          if (first) first.dispatchEvent(new Event('click'));
+        }
+      });
+      setTimeout(() => { try { search.focus(); } catch { /* 忽略 */ } }, 0);
+      } finally {
+        opening = false;
+      }
+    };
+
+    btn.addEventListener('click', (event) => { event.stopPropagation(); openPop(); });
+
+    return {
+      node: wrap,
+      getValue: () => value,
+      setValue,
+    };
+  };
+
   const SECTIONS = [];
+
+  // summary 要在 fill 之前声明：fill 里会引用它。
+  // 用 let + 后续赋值，避免 const 的 TDZ 在调用顺序变化时抛 ReferenceError。
+  let summary = null;
 
   // 分组：内容不再直接堆进面板，而是登记成「域」，
   // 由左侧导航切换（同一时刻只挂一个域的 DOM，所以不需要上下滚动）。
@@ -458,59 +802,19 @@ const UI_SCRIPT = `(() => {
     return entry;
   };
 
-  // 装了的打勾加粗，没装的标「未安装」并压成灰斜体：原生下拉只认一部分
-  // option 样式，所以文字上也标出来，颜色被忽略时照样能分辨。
-  const fontCount = (list) => '已装 ' + list.filter((name) => available(name)).length + '/' + list.length + '，灰字＝没装。';
-  const buildSelect = (list, current) => {
-    const sel = el('select', { style: inputStyle });
-    sel.appendChild(el('option', { value: '', text: '（不指定）' }));
-    const ordered = list.slice();
-    if (current && ordered.indexOf(current) < 0) ordered.unshift(current);
-    for (const name of ordered) {
-      const ok = available(name);
-      const opt = el('option', { value: name, text: ok ? '✓ ' + name : name + '（未安装）' });
-      if (ok) {
-        opt.style.fontWeight = '600';
-        opt.style.color = 'var(--dsw-alias-label-primary, inherit)';
-      } else {
-        opt.style.color = 'var(--dsw-alias-label-tertiary, #999)';
-        opt.style.fontStyle = 'italic';
-      }
-      sel.appendChild(opt);
-    }
-    sel.value = current || '';
-    return sel;
-  };
-
-  // 配置里可能存着预置列表里没有的字体（yml 手写的），回填时补一条并同样标注
-  const setSelectValue = (sel, name) => {
-    const value = name || '';
-    if (!value) { sel.value = ''; return; }
-    const exists = Array.prototype.some.call(sel.options, (opt) => opt.value === value);
-    if (!exists) {
-      const ok = available(value);
-      const opt = el('option', { value, text: ok ? '✓ ' + value : value + '（未安装）' });
-      if (ok) {
-        opt.style.fontWeight = '600';
-      } else {
-        opt.style.color = 'var(--dsw-alias-label-tertiary, #999)';
-        opt.style.fontStyle = 'italic';
-      }
-      sel.appendChild(opt);
-    }
-    sel.value = value;
-  };
+  // 装了的打勾，没装的标问号：字体选择器里每一项都靠它标状态。
+  const fontCount = (list) => '已装 ' + list.filter((name) => available(name)).length + '/' + list.length + '，问号＝未检测到。';
 
   // ── 侧栏字体 ────────────────────────────────────────────────
   const secFont = sectionOf('侧栏字体');
   const zhField = fieldOf('中文字体', '');
-  const zhSelect = buildSelect(ZH_FONTS, '');
-  zhField.row.appendChild(zhSelect);
+  const zhSelect = buildFontPicker(ZH_FONTS, '');
+  zhField.row.appendChild(zhSelect.node);
   secFont.body.appendChild(zhField.wrap);
 
   const enField = fieldOf('英文字体', '');
-  const enSelect = buildSelect(EN_FONTS, '');
-  enField.row.appendChild(enSelect);
+  const enSelect = buildFontPicker(EN_FONTS, '');
+  enField.row.appendChild(enSelect.node);
   secFont.body.appendChild(enField.wrap);
 
   const fbField = fieldOf('回退字体', '没装时依次回退。');
@@ -550,8 +854,14 @@ const UI_SCRIPT = `(() => {
     box.style.margin = '0';
     // 勾选即刻生效：只增删 <html> 上的属性，不重算 CSS
     box.addEventListener('change', () => {
-      if (window.__dstSetFlag) window.__dstSetFlag(FLAG_OF[f.key], box.checked);
-      status.textContent = (box.checked ? '已开启' : '已关闭') + '（尚未保存）';
+      // 只有落成 <html> 属性的开关能即时生效；其余（如 searchInRail）等保存后重算 CSS
+      const flag = FLAG_OF[f.key];
+      if (flag && window.__dstSetFlag) {
+        window.__dstSetFlag(flag, box.checked);
+        status.textContent = (box.checked ? '已开启' : '已关闭') + '（尚未保存）';
+      } else {
+        status.textContent = (box.checked ? '已开启' : '已关闭') + '，点「应用并保存」后生效';
+      }
     });
     field.row.appendChild(pillOf(box));
     boolInputs[f.key] = box;
@@ -586,13 +896,13 @@ const UI_SCRIPT = `(() => {
   // ── 对话区字体 ──────────────────────────────────────────────
   const secContent = sectionOf('对话区字体');
   const cZhField = fieldOf('中文字体', '');
-  const contentZhSelect = buildSelect(ZH_FONTS, '');
-  cZhField.row.appendChild(contentZhSelect);
+  const contentZhSelect = buildFontPicker(ZH_FONTS, '');
+  cZhField.row.appendChild(contentZhSelect.node);
   secContent.body.appendChild(cZhField.wrap);
 
   const cEnField = fieldOf('英文字体', '');
-  const contentEnSelect = buildSelect(EN_FONTS, '');
-  cEnField.row.appendChild(contentEnSelect);
+  const contentEnSelect = buildFontPicker(EN_FONTS, '');
+  cEnField.row.appendChild(contentEnSelect.node);
   secContent.body.appendChild(cEnField.wrap);
 
   const cFbField = fieldOf('回退字体', '没装时依次回退。');
@@ -623,8 +933,8 @@ const UI_SCRIPT = `(() => {
   secContent.body.appendChild(cLhField.wrap);
 
   const cCodeField = fieldOf('代码字体', '');
-  const contentCodeSelect = buildSelect(MONO_FONTS, '');
-  cCodeField.row.appendChild(contentCodeSelect);
+  const contentCodeSelect = buildFontPicker(MONO_FONTS, '');
+  cCodeField.row.appendChild(contentCodeSelect.node);
   secContent.body.appendChild(cCodeField.wrap);
 
   const cCodeSizeField = fieldOf('代码字号 px', '0 = 用 DSH 的代码字号。');
@@ -688,8 +998,8 @@ const UI_SCRIPT = `(() => {
   secTerm.body.appendChild(termField.wrap);
 
   const termFontField = fieldOf('终端字体', '只作用于终端，不影响代码块。');
-  const termFontSelect = buildSelect(MONO_FONTS, '');
-  termFontField.row.appendChild(termFontSelect);
+  const termFontSelect = buildFontPicker(MONO_FONTS, '');
+  termFontField.row.appendChild(termFontSelect.node);
   secTerm.body.appendChild(termFontField.wrap);
 
   const termNums = {};
@@ -773,8 +1083,8 @@ const UI_SCRIPT = `(() => {
   setInterval(pull, 1500);
 
   const fill = (state) => {
-    setSelectValue(zhSelect, state.fontFamilyZh);
-    setSelectValue(enSelect, state.fontFamilyEn);
+    zhSelect.setValue(state.fontFamilyZh);
+    enSelect.setValue(state.fontFamilyEn);
     const fbs = Array.isArray(state.fontFallbacks) ? state.fontFallbacks : [];
     for (const name of FALLBACKS) fbBoxes[name].checked = fbs.indexOf(name) >= 0;
     for (const f of NUM_FIELDS.concat(LAYOUT_NUMS)) {
@@ -796,13 +1106,13 @@ const UI_SCRIPT = `(() => {
       .filter((item) => !KEEP_PRESETS.some((preset) => preset.selector === item))
       .join(', ');
     iconSelect.value = ICON_NAMES.indexOf(state.railIcon) >= 0 ? state.railIcon : 'sliders';
-    setSelectValue(contentZhSelect, state.contentFontZh);
-    setSelectValue(contentEnSelect, state.contentFontEn);
+    contentZhSelect.setValue(state.contentFontZh);
+    contentEnSelect.setValue(state.contentFontEn);
     const contentFbs = Array.isArray(state.contentFontFallbacks) ? state.contentFontFallbacks : [];
     for (const name of FALLBACKS) contentFbBoxes[name].checked = contentFbs.indexOf(name) >= 0;
     contentSizeInput.value = state.contentFontSize ? String(state.contentFontSize) : '';
     contentLhInput.value = state.contentLineHeight ? String(state.contentLineHeight) : '';
-    setSelectValue(contentCodeSelect, state.contentCodeFont);
+    contentCodeSelect.setValue(state.contentCodeFont);
     contentCodeSizeInput.value = state.contentCodeFontSize ? String(state.contentCodeFontSize) : '';
 
     // 0.3.0 新增域
@@ -811,7 +1121,7 @@ const UI_SCRIPT = `(() => {
     const feats = Array.isArray(state.fontFeatures) ? state.fontFeatures : [];
     for (const item of FEATURES) featureBoxes[item.name].checked = feats.indexOf(item.name) >= 0;
     termFollowBox.checked = state.terminalFollowCode !== false;
-    setSelectValue(termFontSelect, state.terminalFontFamily);
+    termFontSelect.setValue(state.terminalFontFamily);
     termNums.terminalFontSize.value = state.terminalFontSize ? String(state.terminalFontSize) : '';
     termNums.terminalLetterSpacing.value = state.terminalLetterSpacing ? String(state.terminalLetterSpacing) : '';
     termLigBox.checked = state.terminalLigatures === true;
@@ -830,14 +1140,39 @@ const UI_SCRIPT = `(() => {
         ? (state.terminalFontFamily || '未指定')
         : '跟随代码字体';
       summary.style.whiteSpace = 'pre-line';
-      summary.textContent = '中文 ' + zhName + '\n西文 ' + enName + '\n字号 ' + sizeName + '\n终端 ' + termName;
+      summary.textContent = '中文 ' + zhName + '\\n西文 ' + enName + '\\n字号 ' + sizeName + '\\n终端 ' + termName;
+    }
+  };
+
+  /**
+   * 主动向宿主要一次状态，用于「窗口重新获得焦点时自愈」。
+   * 宿主侧改了 override.json（或在另一个窗口里改过），这里不需要重启就能跟上：
+   * 配置变了就回填面板，CSS 变了就换掉 #dst-live。
+   */
+  let syncing = false;
+  let lastSyncAt = 0;
+  const syncFromHost = async (options) => {
+    const force = Boolean(options && options.force);
+    if (syncing) return;
+    if (!force && Date.now() - lastSyncAt < 800) return;
+    syncing = true;
+    lastSyncAt = Date.now();
+    try {
+      const res = await fetch('/sidebar-tuner/state', { cache: 'no-store' }).then((r) => r.json());
+      if (res && res.ok !== false) {
+        fill((res && res.config) || {});
+        if (res && res.css && res.css !== lastCss) { lastCss = res.css; applyCss(res.css); }
+        scheduleRailCheck();
+      }
+    } catch { /* 宿主不可达时静默，下一次焦点再试 */ } finally {
+      syncing = false;
     }
   };
 
   const collect = () => {
     const out = {
-      fontFamilyZh: zhSelect.value,
-      fontFamilyEn: enSelect.value,
+      fontFamilyZh: zhSelect.getValue(),
+      fontFamilyEn: enSelect.getValue(),
       fontFallbacks: FALLBACKS.filter((name) => fbBoxes[name].checked),
     };
     for (const f of NUM_FIELDS.concat(LAYOUT_NUMS)) {
@@ -854,19 +1189,19 @@ const UI_SCRIPT = `(() => {
     }
     out.fontExclude = keepOut;
     out.railIcon = iconSelect.value;
-    out.contentFontZh = contentZhSelect.value;
-    out.contentFontEn = contentEnSelect.value;
+    out.contentFontZh = contentZhSelect.getValue();
+    out.contentFontEn = contentEnSelect.getValue();
     out.contentFontFallbacks = FALLBACKS.filter((name) => contentFbBoxes[name].checked);
     out.contentFontSize = contentSizeInput.value === '' ? 0 : Number(contentSizeInput.value);
     out.contentLineHeight = contentLhInput.value === '' ? 0 : Number(contentLhInput.value);
-    out.contentCodeFont = contentCodeSelect.value;
+    out.contentCodeFont = contentCodeSelect.getValue();
     out.contentCodeFontSize = contentCodeSizeInput.value === '' ? 0 : Number(contentCodeSizeInput.value);
     // 0.3.0 新增域
     out.letterSpacing = glyphNums.letterSpacing.value === '' ? 0 : Number(glyphNums.letterSpacing.value);
     out.fontWeight = glyphNums.fontWeight.value === '' ? 0 : Number(glyphNums.fontWeight.value);
     out.fontFeatures = FEATURES.filter((item) => featureBoxes[item.name].checked).map((item) => item.name);
     out.terminalFollowCode = termFollowBox.checked;
-    out.terminalFontFamily = termFontSelect.value;
+    out.terminalFontFamily = termFontSelect.getValue();
     out.terminalFontSize = termNums.terminalFontSize.value === '' ? 0 : Number(termNums.terminalFontSize.value);
     out.terminalLetterSpacing = termNums.terminalLetterSpacing.value === '' ? 0 : Number(termNums.terminalLetterSpacing.value);
     out.terminalLigatures = termLigBox.checked;
@@ -880,21 +1215,26 @@ const UI_SCRIPT = `(() => {
     cache: 'no-store',
   }).then((r) => r.json());
 
+  let busy = false;
   const save = async () => {
+    if (busy) return;
+    busy = true;
     status.textContent = '保存中…';
     try {
       const res = await post(collect());
       if (res && res.ok) { applyCss(res.css); status.textContent = '已应用并保存到 override.json'; }
       else status.textContent = '保存失败：' + (res && res.error ? res.error : '未知错误');
-    } catch (e) { status.textContent = '保存失败：' + e.message; }
+    } catch (e) { status.textContent = '保存失败：' + e.message; } finally { busy = false; }
   };
 
   const reset = async () => {
+    if (busy) return;
+    busy = true;
     status.textContent = '恢复默认…';
     try {
       const res = await post({ __reset: true });
       if (res && res.ok) { fill(res.config || {}); applyCss(res.css); status.textContent = '已恢复默认'; }
-    } catch (e) { status.textContent = '失败：' + e.message; }
+    } catch (e) { status.textContent = '失败：' + e.message; } finally { busy = false; }
   };
 
   const actions = el('div', { style: { display: 'flex', gap: '8px', marginTop: '10px' } });
@@ -920,19 +1260,23 @@ const UI_SCRIPT = `(() => {
   const navcol = el('div', {
     'data-dst-nav': '1',
     style: {
-      flex: '0 0 128px', display: 'flex', flexDirection: 'column', gap: '2px',
-      padding: '2px 8px 2px 0', overflowY: 'auto',
+      flex: '0 0 var(--dst-nav-w, 168px)', display: 'flex', flexDirection: 'column',
+      gap: 'var(--dst-nav-gap, 3px)',
+      padding: '2px 14px 2px 0', overflowY: 'auto',
       borderRight: '1px solid rgba(127,127,127,.18)',
     },
   });
   const content = el('div', {
     'data-dst-content': '1',
-    style: { flex: '1 1 auto', minWidth: '0', overflowY: 'auto', padding: '2px 0 2px 12px' },
+    style: {
+      flex: '1 1 auto', minWidth: '0', overflowY: 'auto',
+      padding: '2px 2px 2px var(--dst-content-pad, 22px)',
+    },
   });
   workbench.appendChild(navcol);
   workbench.appendChild(content);
 
-  const summary = el('div', {
+  summary = el('div', {
     style: {
       marginTop: 'auto', paddingTop: '10px', fontSize: '10px', lineHeight: '1.6',
       color: 'var(--dsw-alias-label-tertiary, #888)', borderTop: '1px solid rgba(127,127,127,.14)',
@@ -958,8 +1302,10 @@ const UI_SCRIPT = `(() => {
     const button = el('button', {
       text: entry.title,
       style: {
-        textAlign: 'left', padding: '6px 8px', borderRadius: 'var(--dsw-radius-md, 7px)',
-        border: '0', background: 'transparent', cursor: 'pointer', fontSize: '12px',
+        textAlign: 'left', borderRadius: 'var(--dsw-radius-md, 8px)',
+        padding: 'var(--dst-nav-pad-y, 9px) 11px',
+        border: '0', background: 'transparent', cursor: 'pointer',
+        fontSize: 'var(--dst-body-fs, 13px)',
         color: 'var(--dsw-alias-label-secondary, #666)', whiteSpace: 'nowrap',
         overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'inherit',
       },
@@ -979,16 +1325,18 @@ const UI_SCRIPT = `(() => {
   panel.appendChild(workbench);
   const footer = el('div', {
     style: {
-      flex: '0 0 auto', paddingTop: '8px', marginTop: '8px',
+      flex: '0 0 auto', paddingTop: '14px', marginTop: '12px',
       borderTop: '1px solid rgba(127,127,127,.18)',
     },
   });
   footer.appendChild(actions);
   footer.appendChild(status);
   panel.appendChild(footer);
+  // 内容区滚动时浮层跟着重排位置（而不是关掉——聚焦输入框本身就会触发滚动）
+  content.addEventListener('scroll', () => { repositionFontPops(); });
   showSection(0);
 
-  railBtn.addEventListener('click', async () => {
+  const togglePanel = async () => {
     const open = panel.style.display !== 'none';
     panel.style.display = open ? 'none' : 'flex';
     if (open) return;
@@ -998,20 +1346,60 @@ const UI_SCRIPT = `(() => {
       compatCheck();
       status.textContent = '';
     } catch (e) { status.textContent = '读取配置失败：' + e.message; }
-  });
+  };
+  railBtn.addEventListener('click', togglePanel);
 
   document.body.appendChild(panel);
   reportError({ at: new Date().toISOString(), stage: 'panel-mounted', sections: SECTIONS.map((s) => s.title) });
 
+  /**
+   * 兜底入口：8 秒内还没挂进 panelList，就在左下角浮一个固定按钮。
+   * 宿主侧栏结构一变，入口就可能落空——但面板不该因此变得够不着。
+   */
+  setTimeout(() => {
+    const nav = document.querySelector('[class*="_panelList"]');
+    if (nav && railBtn.parentElement === nav) return;
+    if (document.getElementById('dst-float-entry')) return;
+    const float = el('div', {
+      id: 'dst-float-entry',
+      title: '侧栏设置（兜底入口：没能挂进图标列）',
+      style: {
+        position: 'fixed', left: '10px', bottom: '10px', width: '34px', height: '34px',
+        borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', zIndex: '9998', boxSizing: 'border-box',
+        background: 'var(--dsw-alias-bg-elevated, rgba(127,127,127,.18))',
+        border: '1px solid var(--dsw-alias-separator, rgba(127,127,127,.35))',
+        color: 'var(--dsw-alias-label-primary, inherit)',
+      },
+    });
+    float.innerHTML = svgOf(ICON_NAME);
+    float.addEventListener('click', togglePanel);
+    document.body.appendChild(float);
+    reportError({ at: new Date().toISOString(), stage: 'float-fallback', railAttached: false });
+  }, 8000);
+
   // Esc 关闭；点击面板外部也关闭
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && panel.style.display !== 'none') panel.style.display = 'none';
+    if (e.key !== 'Escape') return;
+    // 先关浮层，再关面板：一次 Esc 只做一件事
+    if (document.querySelector('[data-dst-font-pop]')) { closeFontPops(); return; }
+    if (panel.style.display !== 'none') panel.style.display = 'none';
   });
   document.addEventListener('mousedown', (e) => {
     if (panel.style.display === 'none') return;
     if (panel.contains(e.target) || railBtn.contains(e.target)) return;
+    closeFontPops();
     panel.style.display = 'none';
   });
+
+  // 焦点自愈：窗口回到前台时向宿主要一次最新状态（Failsafe，不是轮询）
+  window.addEventListener('focus', () => { void syncFromHost(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void syncFromHost();
+  });
+
+  // 观察器接管入口的重新挂载；不再有 1 秒轮询
+  startObserver();
 })();`;
 
 export function apply(ctx, config) {
@@ -1052,14 +1440,19 @@ export function apply(ctx, config) {
         });
       }
       // 开关属性必须在 head 里先落地，避免首帧闪一下未生效的布局。
-      // 它与设置面板无关，面板关掉时（settingsUi: false）照样要注入。
+      // 它是极小的一段，内联足够；同时充当「内联脚本能否执行」的探针。
       table.push({ kind: 'script', placement: 'head', text: flagScript });
+      table.push({
+        kind: 'script',
+        placement: 'head',
+        text: `try{fetch('/sidebar-tuner/probe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({at:new Date().toISOString(),stage:'canary',inline:true})}).catch(function(){})}catch(e){}`,
+      });
       if (merged.settingsUi !== false) {
-        table.push({ kind: 'script', placement: 'body', text: UI_SCRIPT });
+        table.push({ kind: 'script-src', placement: 'body', src: '/sidebar-tuner/ui.js' });
       }
       // 悬停提示是独立的一小段脚本，开设置面板与否都能用
       if (merged.railTooltips !== false) {
-        table.push({ kind: 'script', placement: 'body', text: TIP_SCRIPT });
+        table.push({ kind: 'script-src', placement: 'body', src: '/sidebar-tuner/tip.js' });
       }
       if (debugOn) {
         table.push({ kind: 'script', placement: 'body', text: DEBUG_DUMP_SCRIPT });
@@ -1130,7 +1523,25 @@ export function apply(ctx, config) {
             for (const key of Object.keys(DEFAULTS)) {
               if (key in body) patch[key] = body[key];
             }
-            const saved = writeOverride(patch);
+            // 归一化：面板之外也能 POST（例如脚本），所以按 DEFAULTS 的类型收一遍，
+            // 免得把错误类型写进 override.json，让下次读数崩在奇怪的地方。
+            const normalized = {};
+            for (const [key, value] of Object.entries(patch)) {
+              const template = DEFAULTS[key];
+              if (Array.isArray(template)) {
+                normalized[key] = Array.isArray(value)
+                  ? value.map((item) => String(item).slice(0, 200)).slice(0, 40)
+                  : [];
+              } else if (typeof template === 'number') {
+                const number = Number(value);
+                normalized[key] = Number.isFinite(number) ? number : template;
+              } else if (typeof template === 'boolean') {
+                normalized[key] = value === true || value === 'true' || value === 1;
+              } else {
+                normalized[key] = String(value ?? '').slice(0, 400);
+              }
+            }
+            const saved = writeOverride(normalized);
             const next = { ...DEFAULTS, ...(config || {}), ...saved };
             const nextCss = buildCss(next);
             fs.writeFileSync(LIVE_PATH, nextCss, 'utf8');
@@ -1140,6 +1551,58 @@ export function apply(ctx, config) {
           }
         },
       }, 'dsh-sidebar-tuner settings state'));
+
+      /**
+       * 注入用的脚本改走外部路由，不再内联进 index.html。
+       *
+       * 内联（{kind:'script', text}）有两个隐患：
+       *   1. 文本里出现 </script 就会截断页面（有自检拦着，但依赖自检）；
+       *   2. 页面上到底有没有执行，宿主侧完全看不见——脚本没跑时没有任何痕迹。
+       * 走路由之后，curl 一下就能确认服务端返回的是不是合法 JS，
+       * 页面端也会留下正常的 200/404 记录。
+       */
+      const scriptRoute = (routePath, getText) => host.effect(() => webServer.register({
+        kind: 'exact',
+        path: routePath,
+        handler: async (_request, response) => {
+          response.writeHead(200, {
+            'content-type': 'application/javascript; charset=utf-8',
+            'cache-control': 'no-store',
+          });
+          response.end(getText());
+        },
+      }, `dsh-sidebar-tuner ${routePath}`));
+
+      scriptRoute('/sidebar-tuner/ui.js', () => UI_SCRIPT);
+      scriptRoute('/sidebar-tuner/tip.js', () => TIP_SCRIPT);
+
+      /**
+       * 本机字体清单：面板的字体选择器靠它列出整台机器的字体，
+       * 不再局限于代码里写死的那十几个预设。
+       */
+      host.effect(() => webServer.register({
+        kind: 'exact',
+        path: '/sidebar-tuner/fonts',
+        handler: async (request, response) => {
+          if (!isLoopback(request?.socket?.remoteAddress)) {
+            response.writeHead(403, { 'content-type': 'application/json; charset=utf-8' });
+            response.end(JSON.stringify({ ok: false, error: 'loopback only', count: 0, fonts: [] }));
+            return;
+          }
+          let fonts = [];
+          let error = '';
+          try {
+            fonts = systemFontsCached();
+          } catch (reason) {
+            error = String(reason?.message || reason);
+          }
+          response.writeHead(200, {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+          });
+          response.end(JSON.stringify({ ok: !error, platform: process.platform, count: fonts.length, fonts, error }));
+        },
+      }, 'dsh-sidebar-tuner fonts'));
 
       host.effect(() => webServer.register({
         kind: 'exact',
