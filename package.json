@@ -39,7 +39,8 @@
     "LICENSE",
     "examples",
     "assets",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "scripts"
   ],
   "dsh": {
     "bundle": {
