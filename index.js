@@ -244,13 +244,68 @@ const UI_SCRIPT = `(() => {
     railBtn.title = compact ? '侧栏设置' : '';
   };
 
+  /**
+   * 入口插在「更多」锚点之前，而不是列表最末。
+   * 理由：panelList 是 overflow:auto，宿主自己会在末尾放一个「更多」锚点；
+   * 追加在最末时，插件一多，我们的入口就被挤到可视区外，看起来像"按钮消失了"。
+   */
   const attachRail = () => {
     const nav = document.querySelector('[class*="_panelList"]');
-    if (nav && railBtn.parentElement !== nav) nav.appendChild(railBtn);
-    syncLabel(false);
+    if (!nav) return;
+    if (railBtn.parentElement === nav) return;
+    const anchor = nav.querySelector('[class*="moreAnchor"]');
+    if (anchor && anchor.parentElement === nav) nav.insertBefore(railBtn, anchor);
+    else nav.appendChild(railBtn);
+    // 标签跟着邻居字号走；这里失败也不能影响入口本身
+    try { syncLabel(false); } catch { /* 忽略 */ }
   };
   attachRail();
   setInterval(attachRail, 1000);
+
+  // 出问题要能自己报上来：桌面端没有控制台可看，只能把错误写回宿主。
+  const reportError = (payload) => {
+    try {
+      fetch('/sidebar-tuner/probe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      }).catch(() => {});
+    } catch { /* 宿主不可达就算了，不能因为上报本身再抛一次 */ }
+  };
+  window.addEventListener('error', (event) => {
+    reportError({
+      at: new Date().toISOString(),
+      stage: 'client-error',
+      message: String(event.message || ''),
+      line: event.lineno || 0,
+      column: event.colno || 0,
+      stack: String((event.error && event.error.stack) || '').slice(0, 800),
+    });
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason || {};
+    reportError({
+      at: new Date().toISOString(),
+      stage: 'client-rejection',
+      message: String(reason.message || reason),
+      stack: String(reason.stack || '').slice(0, 800),
+    });
+  });
+  // 挂载后回执一次：入口到底插进去没有、父节点是谁
+  setTimeout(() => {
+    const nav = document.querySelector('[class*="_panelList"]');
+    reportError({
+      at: new Date().toISOString(),
+      stage: 'rail-report',
+      hasNav: Boolean(nav),
+      hasButton: Boolean(document.getElementById('dst-rail-entry')),
+      sameParent: Boolean(nav && railBtn.parentElement === nav),
+      navChildren: nav ? nav.children.length : 0,
+      anchorFound: Boolean(nav && nav.querySelector('[class*="moreAnchor"]')),
+      panelTableAttached: Boolean(document.querySelector('[data-dst-panel]')),
+    });
+  }, 3000);
 
   // ── 面板 ────────────────────────────────────────────────────
   const panel = el('div', {
@@ -946,6 +1001,7 @@ const UI_SCRIPT = `(() => {
   });
 
   document.body.appendChild(panel);
+  reportError({ at: new Date().toISOString(), stage: 'panel-mounted', sections: SECTIONS.map((s) => s.title) });
 
   // Esc 关闭；点击面板外部也关闭
   document.addEventListener('keydown', (e) => {
