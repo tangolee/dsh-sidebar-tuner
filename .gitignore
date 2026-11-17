@@ -2,6 +2,10 @@
 override.json
 live.css
 
+# 只在本机维护，不推送
+CHANGELOG.md
+docs/DEVELOPMENT.md
+
 # 依赖
 node_modules/
 
