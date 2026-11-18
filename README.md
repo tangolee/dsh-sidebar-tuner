@@ -2,7 +2,7 @@
 
 给 DSH 桌面端换字体、调排版的小插件。侧栏和对话区都能改，改完立即可见，设置存在本机。
 
-![侧栏：图标列 + 会话列](https://raw.githubusercontent.com/tangolee/dsh-sidebar-tuner/main/assets/screenshots/sidebar.png)
+![dsh-sidebar-tuner：给 DSH 的侧栏换一种排法](https://raw.githubusercontent.com/tangolee/dsh-sidebar-tuner/main/assets/screenshots/hero-1280x640.png)
 
 DSH 自带的「设置 → 外观 → 字号」只管对话内容区，左侧栏的字号、行距是写死的，一直调不动。这个插件把两边一起接管了。
 
@@ -33,7 +33,7 @@ https://github.com/tangolee/dsh-sidebar-tuner
 这个链接装的是仓库最新提交。想要固定下来的版本，用 Release 里打好的包：
 
 ```
-https://github.com/tangolee/dsh-sidebar-tuner/releases/download/v0.3.0/dsh-sidebar-tuner.tgz
+https://github.com/tangolee/dsh-sidebar-tuner/releases/download/v0.3.1/dsh-sidebar-tuner.tgz
 ```
 
 命令行等价写法（桌面端的 profile 由应用独占管理，命令行只对 `web` / headless 有效）：
@@ -48,7 +48,7 @@ dsh plugin --profile web add https://github.com/tangolee/dsh-sidebar-tuner
 dsh plugin --profile web add dsh-sidebar-tuner
 ```
 
-> npm 上刚发布的版本会被 profile 的供应链延迟（`minimumReleaseAge`）挡回上一个，装不到就显式写版本号：`dsh-sidebar-tuner@0.3.0`。
+> npm 上刚发布的版本会被 profile 的供应链延迟（`minimumReleaseAge`）挡回上一个，装不到就显式写版本号：`dsh-sidebar-tuner@0.3.1`。
 
 上面这些装法都会自己把插件登记进 `dsh.profile.bundles`，不用手改配置文件。唯一的例外是自己改代码：`corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"` 之后，得在 profile 的 `dsh.profile.bundles` 里手动加一行 `"dsh-sidebar-tuner"`。
 ## 怎么用
