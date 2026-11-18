@@ -321,5 +321,56 @@ console.log('\n== 场景 7：交互边界（连点 / Esc 优先级 / 浮标回�
   }
 }
 
+console.log('\n== 场景 8：键盘导航与字体重扫 ==');
+{
+  const harness = createHarness();
+  buildSidebar(harness.body);
+  runScript(script, harness.sandbox);
+  const tick = async (times = 4) => { for (let i = 0; i < times; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+  await tick();
+
+  // 面板要先把入口点开才会挂到 DOM 上
+  const railEntry = harness.document.getElementById('dst-rail-entry');
+  if (railEntry) railEntry.dispatchEvent(new Event('click'));
+  await tick(3);
+
+  const collect = (node, wanted, out = []) => {
+    if (!node) return out;
+    // mini-dom 的 tagName 是大写（BUTTON / DIV），比较时统一大小写
+    if (String(node.tagName || '').toLowerCase() === wanted) out.push(node);
+    for (const child of node.children || []) collect(child, wanted, out);
+    return out;
+  };
+
+  const panel = harness.body.querySelector('[data-dst-panel]');
+  const navButtons = collect(panel, 'button').filter((button) => /^(侧栏|入口|对话区|字距|终端|高级)/.test(String(button.textContent || '')));
+  check('左栏导航按钮齐全', navButtons.length >= 8, navButtons.length + ' 个');
+
+  const navcol = navButtons[0] ? (navButtons[0].parentElement || navButtons[0].parentNode) : null;
+  const activeTitle = () => {
+    const section = harness.body.querySelector('[data-dst-section]');
+    return section ? String(section.getAttribute('data-dst-section') || '') : '';
+  };
+
+  const first = activeTitle();
+  navcol.dispatchEvent({ type: 'keydown', key: 'ArrowDown', preventDefault() {} });
+  await tick(2);
+  check('方向键切换到下一个域', activeTitle() !== first && activeTitle() !== '', `${first || '(空)'} → ${activeTitle() || '(空)'}`);
+
+  navcol.dispatchEvent({ type: 'keydown', key: 'End', preventDefault() {} });
+  await tick(2);
+  check('End 跳到最后一个域', activeTitle().startsWith('高级'), activeTitle());
+
+  // 最后一个域里应该有「重新扫描本机字体」，以及配置备份的两个按钮
+  const advancedText = String(harness.body.querySelector('[data-dst-section]').textContent || '');
+  check('高级域含「重新扫描本机字体」', advancedText.includes('重新扫描本机字体'), advancedText.slice(0, 60));
+  check('高级域含「复制当前配置」', advancedText.includes('复制当前配置'));
+  check('高级域含「从剪贴板导入」', advancedText.includes('从剪贴板导入'));
+
+  navcol.dispatchEvent({ type: 'keydown', key: 'Home', preventDefault() {} });
+  await tick(2);
+  check('Home 回到第一个域', activeTitle() === first, activeTitle());
+}
+
 console.log('\n' + (failed === 0 ? '全部通过' : failed + ' 项未通过'));
 process.exit(failed === 0 ? 0 : 1);

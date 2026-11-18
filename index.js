@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildCss, DEFAULTS } from './css.js';
 
@@ -42,8 +42,24 @@ function familyOfFace(face) {
   return name;
 }
 
-/** 枚举本机已安装字体族。非 Windows 返回空数组，由前端退回预设列表。 */
-function listSystemFonts() {
+/** 读一个注册表键，返回原始 Buffer；键不存在或 reg 不可用时返回 null。 */
+function queryRegistryKey(key) {
+  return new Promise((resolve) => {
+    execFile(
+      'reg',
+      ['query', key],
+      { windowsHide: true, timeout: 8000, maxBuffer: 8 * 1024 * 1024, encoding: 'buffer' },
+      (error, stdout) => { resolve(error ? null : stdout); },
+    );
+  });
+}
+
+/**
+ * 枚举本机已安装字体族。非 Windows 返回空数组，由前端退回预设列表。
+ * 走异步 execFile：同步版会把宿主事件循环卡住约 400ms，
+ * 期间所有 RPC（工具调用、状态读写、live.css 轮询）一起排队。
+ */
+async function listSystemFonts() {
   if (process.platform !== 'win32') return [];
   const keys = [
     'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',
@@ -53,13 +69,9 @@ function listSystemFonts() {
   // 中文 Windows 上 reg 的输出是 GBK，直接按 utf8 读会把中文名解成乱码，
   // 所以先拿原始 buffer，再用 GBK 解码（Node 内置 ICU 支持）。
   const decoder = new TextDecoder('gbk', { fatal: false });
-  for (const key of keys) {
-    let raw = null;
-    try {
-      raw = execFileSync('reg', ['query', key], {
-        windowsHide: true, timeout: 8000, maxBuffer: 8 * 1024 * 1024,
-      });
-    } catch { continue; }
+  const raws = await Promise.all(keys.map(queryRegistryKey));
+  for (const raw of raws) {
+    if (!raw || raw.length === 0) continue;
     const text = decoder.decode(raw);
     for (const line of text.split(/\r?\n/)) {
       // 形如：    Inter SemiBold (TrueType)    REG_SZ    Inter-SemiBold.ttf
@@ -79,15 +91,40 @@ function listSystemFonts() {
   return [...families.values()].sort((left, right) => left.localeCompare(right, 'en'));
 }
 
-// 枚举一次约 30~80ms，缓存 60 秒足够：装字体本来就少见。
+// 字体装完不会马上变，缓存 5 分钟；过期时先回旧的、后台再刷新，请求不等枚举。
+const FONT_TTL_MS = 5 * 60_000;
 let fontListCache = { at: 0, fonts: [] };
-function systemFontsCached() {
-  const now = Date.now();
-  if (now - fontListCache.at < 60_000 && fontListCache.fonts.length > 0) return fontListCache.fonts;
-  let fonts = [];
-  try { fonts = listSystemFonts(); } catch { fonts = []; }
-  fontListCache = { at: now, fonts };
-  return fonts;
+let fontRefresh = null;
+
+function refreshSystemFonts() {
+  if (fontRefresh) return fontRefresh;
+  fontRefresh = (async () => {
+    try {
+      const fonts = await listSystemFonts();
+      if (fonts.length > 0) fontListCache = { at: Date.now(), fonts };
+    } catch { /* 枚举失败就继续用旧列表 */ }
+    return fontListCache.fonts;
+  })();
+  return fontRefresh.finally(() => { fontRefresh = null; });
+}
+
+/**
+ * 取字体清单。返回值带 cached/stale 两个标记，便于前端与测试区分：
+ * 命中缓存、回的是过期旧值（后台正在刷）、还是刚刚枚举出来的。
+ */
+async function systemFontsCached(options) {
+  const force = Boolean(options && options.force);
+  const age = Date.now() - fontListCache.at;
+  const hasList = fontListCache.fonts.length > 0;
+  if (hasList && !force && age < FONT_TTL_MS) {
+    return { fonts: fontListCache.fonts, cached: true, stale: false };
+  }
+  if (hasList && !force) {
+    void refreshSystemFonts();
+    return { fonts: fontListCache.fonts, cached: true, stale: true };
+  }
+  const fonts = await refreshSystemFonts();
+  return { fonts, cached: false, stale: false };
 }
 
 function resolveHome(ctx) {
@@ -604,6 +641,16 @@ const UI_SCRIPT = `(() => {
     } catch { systemFonts = []; }
     return systemFonts;
   };
+  // 强制重扫：跳过前端缓存，并让宿主 ?refresh=1 重读注册表
+  const rescanFonts = async () => {
+    systemFonts = null;
+    closeFontPops();
+    try {
+      const res = await fetch('/sidebar-tuner/fonts?refresh=1', { cache: 'no-store' }).then((r) => r.json());
+      systemFonts = Array.isArray(res && res.fonts) ? res.fonts : [];
+    } catch { systemFonts = []; }
+    return systemFonts.length;
+  };
   const closeFontPops = () => {
     activePop = null;
     const nodes = document.querySelectorAll('[data-dst-font-pop]');
@@ -1054,6 +1101,118 @@ const UI_SCRIPT = `(() => {
   customField.row.appendChild(customInput);
   secAdvanced.body.appendChild(customField.wrap);
 
+  // 装完字体不用重启：清掉前端缓存并让宿主强制重读注册表
+  const rescanField = fieldOf('字体清单', '刚装完字体点一下，重新读注册表。');
+  const rescanNote = el('span', {
+    text: '',
+    style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary, #888)' },
+  });
+  const rescanBtn = el('button', {
+    type: 'button',
+    text: '重新扫描本机字体',
+    onclick: async () => {
+      if (rescanNote.textContent === '扫描中…') return;
+      rescanBtn.disabled = true;
+      rescanNote.textContent = '扫描中…';
+      const count = await rescanFonts();
+      rescanBtn.disabled = false;
+      rescanNote.textContent = count
+        ? '已重新扫描：' + count + ' 个字体族'
+        : '扫描没成功，仍在用上一次的清单';
+    },
+    style: {
+      padding: '5px 10px', borderRadius: 'var(--dsw-radius-md, 8px)', cursor: 'pointer',
+      border: '1px solid rgba(127,127,127,.35)', background: 'transparent',
+      color: 'inherit', fontSize: '11px', fontFamily: 'inherit',
+    },
+  });
+  rescanField.row.appendChild(rescanBtn);
+  rescanField.row.appendChild(rescanNote);
+  secAdvanced.body.appendChild(rescanField.wrap);
+
+  // 配置备份：换机器时把 JSON 存下来，粘回去就能还原（也方便贴到群里求助）
+  const copyText = async (text) => {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* 退回 execCommand */ }
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      if (area.select) area.select();
+      const ok = document.execCommand ? document.execCommand('copy') : false;
+      area.remove();
+      return Boolean(ok);
+    } catch { return false; }
+  };
+  const pastedText = async () => {
+    try { return await navigator.clipboard.readText(); } catch { return ''; }
+  };
+
+  const ioField = fieldOf('配置备份', '换机器时把 JSON 存下来，粘回去即可还原。');
+  const ioNote = el('span', {
+    text: '',
+    style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary, #888)' },
+  });
+  const ioCopy = el('button', {
+    type: 'button',
+    text: '复制当前配置',
+    onclick: async () => {
+      const ok = await copyText(JSON.stringify(collect(), null, 2));
+      ioNote.textContent = ok ? '已复制到剪贴板' : '复制没成功，检查一下剪贴板权限';
+    },
+    style: {
+      padding: '5px 10px', borderRadius: 'var(--dsw-radius-md, 8px)', cursor: 'pointer',
+      border: '1px solid rgba(127,127,127,.35)', background: 'transparent',
+      color: 'inherit', fontSize: '11px', fontFamily: 'inherit',
+    },
+  });
+  const ioPaste = el('button', {
+    type: 'button',
+    text: '从剪贴板导入',
+    onclick: async () => {
+      if (ioNote.textContent === '导入中…') return;
+      ioPaste.disabled = true;
+      ioNote.textContent = '导入中…';
+      const text = await pastedText();
+      if (!text.trim()) {
+        ioPaste.disabled = false;
+        ioNote.textContent = '剪贴板是空的，或没有读取权限';
+        return;
+      }
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch { /* 下面统一报错 */ }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        ioPaste.disabled = false;
+        ioNote.textContent = '剪贴板里不是配置对象（要 JSON）';
+        return;
+      }
+      try {
+        const res = await post(parsed);
+        if (res && res.ok) {
+          fill(res.config || {});
+          applyCss(res.css);
+          ioNote.textContent = '已导入并保存';
+        } else {
+          ioNote.textContent = '导入失败：' + (res && res.error ? res.error : '未知错误');
+        }
+      } catch (reason) {
+        ioNote.textContent = '导入失败：' + (reason && reason.message ? reason.message : '网络错误');
+      } finally {
+        ioPaste.disabled = false;
+      }
+    },
+    style: {
+      padding: '5px 10px', borderRadius: 'var(--dsw-radius-md, 8px)', cursor: 'pointer',
+      border: '1px solid rgba(127,127,127,.35)', background: 'transparent',
+      color: 'inherit', fontSize: '11px', fontFamily: 'inherit',
+    },
+  });
+  ioField.row.appendChild(ioCopy);
+  ioField.row.appendChild(ioPaste);
+  ioField.row.appendChild(ioNote);
+  secAdvanced.body.appendChild(ioField.wrap);
+
   const status = el('div', {
     style: { marginTop: '8px', minHeight: '16px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary, #888)' },
   });
@@ -1080,7 +1239,8 @@ const UI_SCRIPT = `(() => {
     } catch { /* 宿主不可达时静默跳过 */ }
   };
   pull();
-  setInterval(pull, 1500);
+  // 3 秒一次足够：live.css 是调样式时用的热更新通道，没人会在 1.5 秒内手改两次
+  setInterval(pull, 3000);
 
   const fill = (state) => {
     zhSelect.setValue(state.fontFamilyZh);
@@ -1285,8 +1445,22 @@ const UI_SCRIPT = `(() => {
 
   let activeIndex = 0;
   const navButtons = [];
+  // 记住上次停留的分区：天天调的是「侧栏排版」，每次打开都回到第一个太烦
+  const SECTION_KEY = 'dst-section-index';
+  const rememberSection = (index) => {
+    try { localStorage.setItem(SECTION_KEY, String(index)); } catch { /* 无存储就算了 */ }
+  };
+  const lastSection = () => {
+    try {
+      const raw = localStorage.getItem(SECTION_KEY);
+      const index = Number(raw);
+      if (Number.isInteger(index) && index >= 0 && index < SECTIONS.length) return index;
+    } catch { /* 无存储就用第一个 */ }
+    return 0;
+  };
   const showSection = (index) => {
     activeIndex = index;
+    rememberSection(index);
     content.textContent = '';
     content.scrollTop = 0;
     content.appendChild(SECTIONS[index].wrap);
@@ -1320,6 +1494,27 @@ const UI_SCRIPT = `(() => {
     navButtons.push(button);
     navcol.appendChild(button);
   });
+  // 上下键在域之间移动，Home/End 跳到首尾：面板开着时不用去够鼠标
+  navcol.addEventListener('keydown', (event) => {
+    const total = SECTIONS.length;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      showSection((activeIndex + 1) % total);
+      if (navButtons[activeIndex]) navButtons[activeIndex].focus();
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      showSection((activeIndex - 1 + total) % total);
+      if (navButtons[activeIndex]) navButtons[activeIndex].focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      showSection(0);
+      if (navButtons[0]) navButtons[0].focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      showSection(total - 1);
+      if (navButtons[total - 1]) navButtons[total - 1].focus();
+    }
+  });
   navcol.appendChild(summary);
 
   panel.appendChild(workbench);
@@ -1334,7 +1529,7 @@ const UI_SCRIPT = `(() => {
   panel.appendChild(footer);
   // 内容区滚动时浮层跟着重排位置（而不是关掉——聚焦输入框本身就会触发滚动）
   content.addEventListener('scroll', () => { repositionFontPops(); });
-  showSection(0);
+  showSection(lastSection());
 
   const togglePanel = async () => {
     const open = panel.style.display !== 'none';
@@ -1589,10 +1784,17 @@ export function apply(ctx, config) {
             response.end(JSON.stringify({ ok: false, error: 'loopback only', count: 0, fonts: [] }));
             return;
           }
+          // ?refresh=1 强制重新枚举（刚装完字体时用得上）
+          const force = /[?&]refresh=1\b/.test(String(request?.url || ''));
           let fonts = [];
+          let cached = false;
+          let stale = false;
           let error = '';
           try {
-            fonts = systemFontsCached();
+            const result = await systemFontsCached({ force });
+            fonts = result.fonts;
+            cached = result.cached;
+            stale = result.stale;
           } catch (reason) {
             error = String(reason?.message || reason);
           }
@@ -1600,7 +1802,10 @@ export function apply(ctx, config) {
             'content-type': 'application/json; charset=utf-8',
             'cache-control': 'no-store',
           });
-          response.end(JSON.stringify({ ok: !error, platform: process.platform, count: fonts.length, fonts, error }));
+          response.end(JSON.stringify({
+            ok: !error, platform: process.platform, count: fonts.length,
+            fonts, cached, stale, error,
+          }));
         },
       }, 'dsh-sidebar-tuner fonts'));
 

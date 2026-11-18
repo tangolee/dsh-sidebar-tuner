@@ -86,14 +86,16 @@ check('注册了 /sidebar-tuner/probe', routes.has('/sidebar-tuner/probe'));
 check('注册了 /sidebar-tuner/tuner.css', routes.has('/sidebar-tuner/tuner.css'));
 check('注册了 /sidebar-tuner/fonts（本机字体清单）', routes.has('/sidebar-tuner/fonts'));
 
-const serve = async (routePath) => {
-  const handler = routes.get(routePath);
+const serve = async (routePath, requestPatch) => {
+  // 宿主按路径精确匹配，查询串不参与；这里同样剥掉，才能测到 ?refresh=1 这类分支
+  const bare = routePath.split('?')[0];
+  const handler = routes.get(bare);
   const captured = { headers: null, body: '' };
   const response = {
     writeHead(code, headers) { captured.code = code; captured.headers = headers || {}; },
     end(body) { captured.body = String(body || ''); },
   };
-  await handler({ method: 'GET', socket: { remoteAddress: '127.0.0.1' } }, response);
+  await handler(Object.assign({ method: 'GET', url: routePath, socket: { remoteAddress: '127.0.0.1' } }, requestPatch || {}), response);
   return captured;
 };
 
@@ -127,7 +129,25 @@ console.log('\n== 本机字体清单 ==');
       check('清单含 ' + name, hit);
     }
     check('没有乱码项', !(data.fonts || []).some((font) => /[\uFFFD]/.test(String(font))));
+    check('带 cached 标记', typeof data.cached === 'boolean', String(data.cached));
   }
+
+  // 枚举字体不能阻塞事件循环：同步 execFileSync 会把宿主卡住约 400ms。
+  // 这里在等待请求的同时打点，看两次 tick 之间最长隔了多久。
+  let worstGap = 0;
+  let last = Date.now();
+  const ticker = setInterval(() => {
+    const now = Date.now();
+    worstGap = Math.max(worstGap, now - last);
+    last = now;
+  }, 4);
+  const started = Date.now();
+  const forced = await serve('/sidebar-tuner/fonts?refresh=1');
+  const elapsed = Date.now() - started;
+  clearInterval(ticker);
+  worstGap = Math.max(worstGap, 0);
+  check('强制刷新返回 200', forced.code === 200, String(forced.code));
+  check('枚举期间事件循环未被卡住（最长停顿 < 120ms）', worstGap < 120, `最长停顿 ${worstGap}ms，请求耗时 ${elapsed}ms`);
 }
 
 console.log('\n' + (failed === 0 ? '全部通过' : failed + ' 项未通过'));
