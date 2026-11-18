@@ -123,11 +123,14 @@ console.log('\n== 本机字体清单 ==');
   if (data) {
     check('ok 为 true', data.ok === true, data.error || '');
     check('字族数量 > 50', Number(data.count) > 50, String(data.count));
-    const probe = ['Inter', 'HarmonyOS Sans SC'];
-    for (const name of probe) {
-      const hit = (data.fonts || []).some((font) => String(font).toLowerCase() === name.toLowerCase());
-      check('清单含 ' + name, hit);
-    }
+    const fonts = (data.fonts || []).map((font) => String(font));
+    const lowered = fonts.map((font) => font.toLowerCase());
+    check('清单含 Inter', lowered.includes('inter'));
+    // 中文常用字体各家机器不一样（HarmonyOS Sans SC / 微软雅黑 / 黑体…），
+    // 断言「至少命中一个」，避免换台机器就红。
+    const cjkProbe = ['HarmonyOS Sans SC', 'Microsoft YaHei', 'SimHei', 'SimSun', 'Noto Sans CJK SC', '鸿蒙黑体'];
+    const cjkHit = cjkProbe.filter((name) => lowered.some((font) => font.includes(name.toLowerCase())));
+    check('清单含中文常用字体', cjkHit.length > 0, cjkHit.join(' / ') || '候选都没命中');
     check('没有乱码项', !(data.fonts || []).some((font) => /[\uFFFD]/.test(String(font))));
     check('带 cached 标记', typeof data.cached === 'boolean', String(data.cached));
   }
