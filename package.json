@@ -55,6 +55,7 @@
   },
   "scripts": {
     "check": "node scripts/check-plugin.mjs && node scripts/verify-host.mjs && node scripts/verify-entry.mjs",
-    "verify": "node scripts/verify-entry.mjs"
+    "verify": "node scripts/verify-entry.mjs",
+    "check:listing": "node scripts/check-listing.mjs"
   }
 }
