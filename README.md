@@ -33,7 +33,7 @@ https://github.com/tangolee/dsh-sidebar-tuner
 这个链接装的是仓库最新提交。想要固定下来的版本，用 Release 里打好的包：
 
 ```
-https://github.com/tangolee/dsh-sidebar-tuner/releases/download/v0.3.1/dsh-sidebar-tuner.tgz
+https://github.com/tangolee/dsh-sidebar-tuner/releases/download/v0.3.2/dsh-sidebar-tuner.tgz
 ```
 
 命令行等价写法（桌面端的 profile 由应用独占管理，命令行只对 `web` / headless 有效）：
@@ -48,7 +48,7 @@ dsh plugin --profile web add https://github.com/tangolee/dsh-sidebar-tuner
 dsh plugin --profile web add dsh-sidebar-tuner
 ```
 
-> npm 上刚发布的版本会被 profile 的供应链延迟（`minimumReleaseAge`）挡回上一个，装不到就显式写版本号：`dsh-sidebar-tuner@0.3.1`。
+> npm 上刚发布的版本会被 profile 的供应链延迟（`minimumReleaseAge`）挡回上一个，装不到就显式写版本号：`dsh-sidebar-tuner@0.3.2`。
 
 上面这些装法都会自己把插件登记进 `dsh.profile.bundles`，不用手改配置文件。唯一的例外是自己改代码：`corepack pnpm@11 add "dsh-sidebar-tuner@link:<你的源码目录>"` 之后，得在 profile 的 `dsh.profile.bundles` 里手动加一行 `"dsh-sidebar-tuner"`。
 ## 怎么用
