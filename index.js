@@ -19,6 +19,13 @@ import { fileURLToPath } from 'node:url';
 import { buildCss, DEFAULTS } from './css.js';
 
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
+/** 本插件版本号：面板顶部那行要显示它，省得对着 package.json 确认 */
+const PLUGIN_VERSION = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(PLUGIN_DIR, 'package.json'), 'utf8'));
+    return String(pkg.version || '');
+  } catch { return ''; }
+})();
 const OVERRIDE_PATH = path.join(PLUGIN_DIR, 'override.json');
 const LIVE_PATH = path.join(PLUGIN_DIR, 'live.css');
 
@@ -636,16 +643,19 @@ const UI_SCRIPT = `(() => {
     if (!has('[class*="_centerCol"]')) missing.push('对话区');
     const boot = window.__DSH_BOOT__ || {};
     const version = String(boot.version || boot.buildVersion || boot.appVersion || '') || await askHostVersion();
-    const shown = version ? 'DSH ' + version + ' · ' : '';
+    const self = '插件 ' + ${JSON.stringify(PLUGIN_VERSION || '?')};
     if (missing.length > 0) {
       compatLine.style.color = 'var(--dsw-alias-label-warning, #c47f00)';
-      compatLine.textContent = '⚠ 没找到' + missing.join('、') + '锚点，当前 DSH 版本可能未适配（本插件测到 ' + DSH_TESTED + '）';
+      compatLine.textContent = self + ' · ⚠ 没找到' + missing.join('、') + '锚点，当前 DSH 版本可能未适配'
+        + (version ? '（检测到 DSH ' + version + '）' : '');
     } else {
       compatLine.style.color = 'var(--dsw-alias-label-tertiary, #888)';
-      compatLine.textContent = shown + '已适配（测到 ' + DSH_TESTED + '，兼容 0.2.x）';
+      compatLine.textContent = self + (version
+        ? ' · 已适配（检测到 DSH ' + version + '，兼容 0.2.x）'
+        : ' · 已适配（未能读到 DSH 版本，兼容 0.2.x）');
     }
   };
-  compatLine.textContent = '已适配（测到 ' + DSH_TESTED + '，兼容 0.2.x）';
+  compatLine.textContent = '插件 ' + ${JSON.stringify(PLUGIN_VERSION || '?')} + ' · 已适配（兼容 0.2.x）';
   panel.appendChild(compatLine);
   setTimeout(compatCheck, 3000);
   setInterval(compatCheck, 30000);

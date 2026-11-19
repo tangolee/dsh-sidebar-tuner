@@ -15,16 +15,18 @@
  *
  * 用法：node scripts/verify-entry.mjs
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createHarness, runScript, MiniElement } from './lib/mini-dom.mjs';
+import { collectPayload } from './lib/payload.mjs';
 
-const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const source = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
-const openTag = 'const UI_SCRIPT = `';
-const open = source.indexOf(openTag);
-const script = source.slice(open + openTag.length, source.indexOf('`;', open + openTag.length));
+// 必须用「宿主真正下发的文本」，不能切 index.js 的源码原文：
+// UI_SCRIPT 是模板字面量，里面的插值会被宿主求值、\n 会被解释成真换行。
+// 早先切源码的写法在遇到第一处插值时就崩了（SyntaxError: Unexpected token '{'）。
+const { uiScript } = await collectPayload();
+const script = uiScript;
+if (!script) {
+  console.error('  拿不到下发的面板脚本，后面的用例没有意义');
+  process.exit(1);
+}
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -391,8 +393,9 @@ console.log('\n== 场景 9：适配声明跟随宿主版本 ==');
   await tick(4);
 
   const panelText = String((harness.body.querySelector('[data-dst-panel]') || {}).textContent || '');
-  check('面板顶部显示宿主版本', panelText.includes('DSH 0.2.2-rc.5'), panelText.slice(0, 80));
-  check('测到的版本已更新为 rc.5', panelText.includes('测到 0.2.2-rc.5'), panelText.slice(0, 80));
+  check('面板顶部显示插件版本', /插件 \d+\.\d+\.\d+/.test(panelText), panelText.slice(0, 60));
+  check('显示检测到的宿主版本', panelText.includes('检测到 DSH 0.2.2-rc.5'), panelText.slice(0, 90));
+  check('措辞是「检测到」而不是「测到」', panelText.includes('（检测到 DSH') && !panelText.includes('（测到'));
   check('不再残留 rc.3', !panelText.includes('rc.3'));
   check('请求过 /sidebar-tuner/version', harness.requests.some((req) => String(req.url).includes('/sidebar-tuner/version')));
 }

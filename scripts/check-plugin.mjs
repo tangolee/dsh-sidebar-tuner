@@ -44,16 +44,8 @@ if (open >= 0) {
     const stray = body.split('`').length - 1;
     check('脚本体内无反引号', stray === 0, stray > 0 ? `发现 ${stray} 个` : '');
     check('脚本体长度合理', body.length > 20000, body.length + ' 字节');
-    // new Function 能对非模块代码做一次真正的作用域解析
-    let parsed = true;
-    try {
-      // eslint-disable-next-line no-new-func
-      new Function(body);
-    } catch (error) {
-      parsed = false;
-      check('脚本体语法正确', false, String(error.message).split('\n')[0]);
-    }
-    if (parsed) check('脚本体语法正确', true);
+    // 语法只在「下发文本」上校验：源码里还有 ${'$'}{…} 插值，直接 new Function 一定是语法错误。
+    // 下发文本的解析断言在下面「注入内容」一节（下发脚本可解析）。
   }
 }
 
