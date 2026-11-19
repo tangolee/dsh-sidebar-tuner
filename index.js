@@ -80,23 +80,32 @@ function detectDshVersion() {
   try { if (process.resourcesPath) roots.push(process.resourcesPath); } catch { /* 非 Electron 主进程 */ }
   try { roots.push(path.join(path.dirname(process.execPath), 'resources')); } catch { /* ignore */ }
   for (const root of roots) {
-    for (const rel of ['app/package.json', 'app.asar/package.json']) {
-      const full = path.join(root, rel);
-      try {
-        if (rel.endsWith('.asar/package.json')) {
-          const text = readFromAsar(path.join(root, 'app.asar'), 'package.json');
-          if (text) {
-            const version = JSON.parse(text)?.version;
-            if (version) return String(version);
-          }
-          continue;
-        }
-        if (fs.existsSync(full)) {
-          const version = JSON.parse(fs.readFileSync(full, 'utf8'))?.version;
-          if (version) return String(version);
-        }
-      } catch { /* 换下一个来源 */ }
-    }
+    // 1. 解包安装：resources/app/package.json
+    try {
+      const unpacked = path.join(root, 'app', 'package.json');
+      if (fs.existsSync(unpacked)) {
+        const version = JSON.parse(fs.readFileSync(unpacked, 'utf8'))?.version;
+        if (version) return String(version);
+      }
+    } catch { /* 换下一个来源 */ }
+
+    // 2. asar 打包（rc.5 起的默认形态）。Electron 把 app.asar 当目录拦截，
+    //    所以先按「目录里的文件」直接读——这一步只有在 Electron 里才成，
+    //    纯 Node 下会 ENOENT/ENOTDIR，落到下面的手工解析。
+    try {
+      const inside = path.join(root, 'app.asar', 'package.json');
+      const version = JSON.parse(fs.readFileSync(inside, 'utf8'))?.version;
+      if (version) return String(version);
+    } catch { /* 非 Electron，继续 */ }
+
+    // 3. 手工解析 asar 头部（纯 Node / 测试环境用）
+    try {
+      const text = readFromAsar(path.join(root, 'app.asar'), 'package.json');
+      if (text) {
+        const version = JSON.parse(text)?.version;
+        if (version) return String(version);
+      }
+    } catch { /* 换下一个来源 */ }
   }
   return '';
 }
