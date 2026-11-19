@@ -38,7 +38,9 @@ const buildSidebar = (body) => {
   frame.className = 'mP3x-q_frame';
   frame.setAttribute('data-dst-test', 'frame');
   const sidebarCol = new MiniElement('div');
-  sidebarCol.className = 'wtg9ga_root wtg9ga_quietBars';
+  // 这三个 class 是插件自检锚点：_sidebarCol / _panelList / _centerCol。
+  // 少任何一个，面板顶部都会走「未适配」告警分支。
+  sidebarCol.className = 'wtg9ga_sidebarCol wtg9ga_root wtg9ga_quietBars';
   const scrollArea = new MiniElement('div');
   scrollArea.className = 'wtg9ga_scrollArea';
   const nav = new MiniElement('nav');
@@ -59,6 +61,10 @@ const buildSidebar = (body) => {
   scrollArea.appendChild(nav);
   sidebarCol.appendChild(scrollArea);
   frame.appendChild(sidebarCol);
+  // 对话区锚点：插件用 [class*="_centerCol"] 判断内容列还在不在
+  const centerCol = new MiniElement('div');
+  centerCol.className = 'wtg9ga_centerCol';
+  frame.appendChild(centerCol);
   body.appendChild(frame);
   return { nav, moreAnchor, sidebarCol };
 };
@@ -370,6 +376,25 @@ console.log('\n== 场景 8：键盘导航与字体重扫 ==');
   navcol.dispatchEvent({ type: 'keydown', key: 'Home', preventDefault() {} });
   await tick(2);
   check('Home 回到第一个域', activeTitle() === first, activeTitle());
+}
+
+console.log('\n== 场景 9：适配声明跟随宿主版本 ==');
+{
+  const harness = createHarness();
+  buildSidebar(harness.body);
+  runScript(script, harness.sandbox);
+  const tick = async (times = 6) => { for (let i = 0; i < times; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+  await tick();
+
+  const railEntry = harness.document.getElementById('dst-rail-entry');
+  if (railEntry) railEntry.dispatchEvent(new Event('click'));
+  await tick(4);
+
+  const panelText = String((harness.body.querySelector('[data-dst-panel]') || {}).textContent || '');
+  check('面板顶部显示宿主版本', panelText.includes('DSH 0.2.2-rc.5'), panelText.slice(0, 80));
+  check('测到的版本已更新为 rc.5', panelText.includes('测到 0.2.2-rc.5'), panelText.slice(0, 80));
+  check('不再残留 rc.3', !panelText.includes('rc.3'));
+  check('请求过 /sidebar-tuner/version', harness.requests.some((req) => String(req.url).includes('/sidebar-tuner/version')));
 }
 
 console.log('\n' + (failed === 0 ? '全部通过' : failed + ' 项未通过'));

@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-tuner",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "DSH 桌面端侧栏样式与对话区排版：字体选择与修改（本机安装检测）、双栏布局、桌面端图标列设置、终端字体，配可视化设置面板。纯样式注入，不改动其它插件。 | Typography and layout for the DSH desktop sidebar and conversation area: font picking with installed-font detection, two-column layout, icon rail settings, terminal fonts, plus a visual settings panel. Pure style injection; no other plugin is modified.",
   "type": "module",
   "main": "index.js",
@@ -49,7 +49,9 @@
     "compatibility": {
       "dsh": ">=0.2.0-rc.1 <0.3.0-0",
       "dshReleases": {
-        "0.2.2-rc.3": "compatible"
+        "0.2.2-rc.3": "compatible",
+        "0.2.2-rc.4": "compatible",
+        "0.2.2-rc.5": "compatible"
       }
     }
   },

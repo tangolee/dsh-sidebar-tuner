@@ -153,5 +153,31 @@ console.log('\n== 本机字体清单 ==');
   check('枚举期间事件循环未被卡住（最长停顿 < 120ms）', worstGap < 120, `最长停顿 ${worstGap}ms，请求耗时 ${elapsed}ms`);
 }
 
+console.log('\n== 宿主版本自报（rc.5 起前端不再给版本） ==');
+{
+  check('注册了 /sidebar-tuner/version', routes.has('/sidebar-tuner/version'));
+  const res = await serve('/sidebar-tuner/version');
+  check('版本路由返回 200', res.code === 200, String(res.code));
+  let data = null;
+  try { data = JSON.parse(res.body); } catch { /* 下面报 */ }
+  check('版本路由返回 JSON', Boolean(data));
+  if (data) {
+    // 纯 Node 下没有 resources\app.asar，空版本是正常结果；只要求两个字段自洽
+    const hasVersion = /^\d+\.\d+\.\d+/.test(String(data.version || ''));
+    check('ok 与 version 是否存在保持一致', data.ok === hasVersion, `ok=${data.ok} version=${data.version || '（空）'}`);
+  }
+
+  // 环境变量优先，用它验证「拿到版本后能正确回传」这条路径
+  const saved = process.env.DSH_VERSION;
+  process.env.DSH_VERSION = '0.2.2-rc.99-test';
+  const forced = await serve('/sidebar-tuner/version');
+  if (saved === undefined) delete process.env.DSH_VERSION; else process.env.DSH_VERSION = saved;
+  const forcedData = JSON.parse(forced.body || '{}');
+  check('环境变量指定的版本能被读出来', forcedData.version === '0.2.2-rc.99-test', String(forcedData.version));
+
+  const denied = await serve('/sidebar-tuner/version', { socket: { remoteAddress: '10.0.0.7' } });
+  check('非本机访问被拒', denied.code === 403, String(denied.code));
+}
+
 console.log('\n' + (failed === 0 ? '全部通过' : failed + ' 项未通过'));
 process.exit(failed === 0 ? 0 : 1);

@@ -263,6 +263,15 @@ export function createHarness() {
         }),
       };
     }
+    // 宿主自报版本：面板顶部「已适配」那行要用它，别让它变成空
+    if (target.includes('/sidebar-tuner/version')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({ ok: true, version: '0.2.2-rc.5', platform: 'win32' }),
+      };
+    }
     return { ok: true, status: 200, text: async () => '', json: async () => ({ ok: true, config: {} }) };
   };
 

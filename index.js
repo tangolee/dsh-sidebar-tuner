@@ -23,6 +23,78 @@ const OVERRIDE_PATH = path.join(PLUGIN_DIR, 'override.json');
 const LIVE_PATH = path.join(PLUGIN_DIR, 'live.css');
 
 /**
+ * 从 asar 归档里读一个小文件。DSH 桌面端的宿主代码是 app.asar 打包的，
+ * 普通 fs 无法把它当目录读，但 asar 头部是明文 JSON，解析出来就能定位偏移。
+ * 拿不到就返回 null，调用方退回别的来源。
+ */
+function readFromAsar(asarPath, innerPath) {
+  try {
+    const fd = fs.openSync(asarPath, 'r');
+    try {
+      const head = Buffer.alloc(16);
+      if (fs.readSync(fd, head, 0, 16, 0) < 16) return null;
+      // pikchr: [uint32 = 4][uint32 = jsonLen][json...][padding]
+      const jsonLen = head.readUInt32LE(12);
+      if (!jsonLen || jsonLen > 16 * 1024 * 1024) return null;
+      const jsonBuf = Buffer.alloc(jsonLen);
+      if (fs.readSync(fd, jsonBuf, 0, jsonLen, 16) < jsonLen) return null;
+      const header = JSON.parse(jsonBuf.toString('utf8'));
+      const parts = innerPath.split('/').filter(Boolean);
+      let node = header;
+      for (const part of parts) {
+        node = node && node.files ? node.files[part] : null;
+        if (!node) return null;
+      }
+      if (!node || typeof node.offset !== 'string' || typeof node.size !== 'number') return null;
+      // 数据区起点按 4 字节对齐，否则偏移会差几个字节，读出来是乱码
+      let dataStart = 16 + jsonLen;
+      while (dataStart % 4 !== 0) dataStart += 1;
+      const body = Buffer.alloc(node.size);
+      if (fs.readSync(fd, body, 0, node.size, dataStart + Number(node.offset)) < node.size) return null;
+      return body.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 探测宿主 DSH 版本。顺序：环境变量 → 解包目录的 package.json → app.asar 里的 package.json。
+ * 之前只依赖前端的 window.__DSH_BOOT__，0.2.2-rc.5 起那个全局不再提供版本，面板就只能显示硬编码的旧值。
+ */
+function detectDshVersion() {
+  for (const key of ['DSH_VERSION', 'DSH_APP_VERSION', 'npm_package_version']) {
+    const value = process.env[key];
+    if (typeof value === 'string' && /^\d+\.\d+\.\d+/.test(value)) return value;
+  }
+  const roots = [];
+  try { if (process.resourcesPath) roots.push(process.resourcesPath); } catch { /* 非 Electron 主进程 */ }
+  try { roots.push(path.join(path.dirname(process.execPath), 'resources')); } catch { /* ignore */ }
+  for (const root of roots) {
+    for (const rel of ['app/package.json', 'app.asar/package.json']) {
+      const full = path.join(root, rel);
+      try {
+        if (rel.endsWith('.asar/package.json')) {
+          const text = readFromAsar(path.join(root, 'app.asar'), 'package.json');
+          if (text) {
+            const version = JSON.parse(text)?.version;
+            if (version) return String(version);
+          }
+          continue;
+        }
+        if (fs.existsSync(full)) {
+          const version = JSON.parse(fs.readFileSync(full, 'utf8'))?.version;
+          if (version) return String(version);
+        }
+      } catch { /* 换下一个来源 */ }
+    }
+  }
+  return '';
+}
+
+/**
  * 把注册表里的「字面名」收敛成「字族名」。
  * 例：Inter SemiBold Italic → Inter；Microsoft YaHei UI Bold → Microsoft YaHei UI
  * 刻意不剥 Display / Variable / Text —— 它们本身就是不同字族（Inter Display 等）。
@@ -523,24 +595,35 @@ const UI_SCRIPT = `(() => {
 
   // 适配声明：面板顶上常驻一行。DSH 的侧栏/内容列是样式锚点，版本一变就可能
   // 对不上，所以这里既报「测过哪个版本」，也顺手自检锚点还在不在。
-  const DSH_TESTED = '0.2.2-rc.3';
+  const DSH_TESTED = '0.2.2-rc.5';
   const compatLine = el('div', {
     style: { marginBottom: '8px', fontSize: '10px', lineHeight: '1.4', color: 'var(--dsw-alias-label-tertiary, #888)' },
   });
-  const compatCheck = () => {
+  // 宿主版本问一次就缓存：前端全局变量从 rc.5 起不再带版本号
+  let hostVersion = '';
+  const askHostVersion = async () => {
+    if (hostVersion) return hostVersion;
+    try {
+      const res = await fetch('/sidebar-tuner/version', { cache: 'no-store' }).then((r) => r.json());
+      hostVersion = String(res && res.version ? res.version : '');
+    } catch { hostVersion = ''; }
+    return hostVersion;
+  };
+  const compatCheck = async () => {
     const has = (sel) => !!document.querySelector(sel);
     const missing = [];
     if (!has('[class*="_sidebarCol"]')) missing.push('侧栏');
     if (!has('[class*="_panelList"]')) missing.push('图标列');
     if (!has('[class*="_centerCol"]')) missing.push('对话区');
     const boot = window.__DSH_BOOT__ || {};
-    const version = String(boot.version || boot.buildVersion || boot.appVersion || '');
+    const version = String(boot.version || boot.buildVersion || boot.appVersion || '') || await askHostVersion();
+    const shown = version ? 'DSH ' + version + ' · ' : '';
     if (missing.length > 0) {
       compatLine.style.color = 'var(--dsw-alias-label-warning, #c47f00)';
       compatLine.textContent = '⚠ 没找到' + missing.join('、') + '锚点，当前 DSH 版本可能未适配（本插件测到 ' + DSH_TESTED + '）';
     } else {
       compatLine.style.color = 'var(--dsw-alias-label-tertiary, #888)';
-      compatLine.textContent = (version ? 'DSH ' + version + ' · ' : '') + '已适配（测到 ' + DSH_TESTED + '，兼容 0.2.x）';
+      compatLine.textContent = shown + '已适配（测到 ' + DSH_TESTED + '，兼容 0.2.x）';
     }
   };
   compatLine.textContent = '已适配（测到 ' + DSH_TESTED + '，兼容 0.2.x）';
@@ -1679,6 +1762,34 @@ export function apply(ctx, config) {
           response.end(body);
         },
       }, 'dsh-sidebar-tuner live stylesheet'));
+
+      // 宿主自报版本：面板顶部的「已适配」用它显示当前 DSH 版本。
+      // 0.2.2-rc.5 起前端不再提供 window.__DSH_BOOT__.version，只能由宿主读自己的包。
+      let versionCache = { at: 0, value: '' };
+      const systemVersion = () => {
+        const now = Date.now();
+        if (versionCache.value && now - versionCache.at < 5 * 60_000) return versionCache.value;
+        const value = detectDshVersion();
+        if (value) versionCache = { at: now, value };
+        return value;
+      };
+
+      host.effect(() => webServer.register({
+        kind: 'exact',
+        path: '/sidebar-tuner/version',
+        handler: async (request, response) => {
+          const reply = (code, payload) => {
+            response.writeHead(code, {
+              'content-type': 'application/json; charset=utf-8',
+              'cache-control': 'no-store',
+            });
+            response.end(JSON.stringify(payload));
+          };
+          if (!isLoopback(request?.socket?.remoteAddress)) return reply(403, { ok: false, error: 'loopback only' });
+          const version = systemVersion();
+          return reply(200, { ok: Boolean(version), version, platform: process.platform });
+        },
+      }, 'dsh-sidebar-tuner host version'));
 
       host.effect(() => webServer.register({
         kind: 'exact',
