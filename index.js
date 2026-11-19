@@ -651,7 +651,10 @@ const UI_SCRIPT = `(() => {
     if (!has('[class*="_panelList"]')) missing.push('图标列');
     if (!has('[class*="_centerCol"]')) missing.push('对话区');
     const boot = window.__DSH_BOOT__ || {};
-    const version = String(boot.version || boot.buildVersion || boot.appVersion || '') || await askHostVersion();
+    // rc.5 起版本挂在 boot.release.version（宿主发布到 boot 清单里的那份），不再是 boot.version
+    const bootVersion = (boot.release && boot.release.version)
+      || boot.version || boot.buildVersion || boot.appVersion || '';
+    const version = String(bootVersion) || await askHostVersion();
     const self = '插件 ' + ${JSON.stringify(PLUGIN_VERSION || '?')};
     if (missing.length > 0) {
       compatLine.style.color = 'var(--dsw-alias-label-warning, #c47f00)';
@@ -1802,12 +1805,22 @@ export function apply(ctx, config) {
       }, 'dsh-sidebar-tuner live stylesheet'));
 
       // 宿主自报版本：面板顶部的「已适配」用它显示当前 DSH 版本。
-      // 0.2.2-rc.5 起前端不再提供 window.__DSH_BOOT__.version，只能由宿主读自己的包。
+      //
+      // 首选 clientModules 服务的 release.version —— 这是宿主自己发布到 __DSH_BOOT__
+      // 的那份版本号，跟安装形态（asar / 解包）完全无关，普通用户也是这条路径。
+      // 读不到才退回按文件探测（见 detectDshVersion）。
       let versionCache = { at: 0, value: '' };
+      const serviceVersion = () => {
+        try {
+          const mod = typeof host.get === 'function' ? host.get('clientModules') : null;
+          const value = mod && mod.release && mod.release.version;
+          return value ? String(value) : '';
+        } catch { return ''; }
+      };
       const systemVersion = () => {
         const now = Date.now();
         if (versionCache.value && now - versionCache.at < 5 * 60_000) return versionCache.value;
-        const value = detectDshVersion();
+        const value = serviceVersion() || detectDshVersion();
         if (value) versionCache = { at: now, value };
         return value;
       };

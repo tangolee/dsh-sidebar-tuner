@@ -179,5 +179,34 @@ console.log('\n== 宿主版本自报（rc.5 起前端不再给版本） ==');
   check('非本机访问被拒', denied.code === 403, String(denied.code));
 }
 
+console.log('\n== 版本首选来源：clientModules 服务（与安装形态无关）==');
+{
+  // 普通用户是 asar-only 安装，任何按文件探测都可能落空；
+  // 宿主自己把版本发布到 clientModules.release，这条路径不依赖磁盘布局。
+  const routes2 = new Map();
+  const web2 = { register(route) { routes2.set(route.path, route.handler); return () => {}; } };
+  const ctx2 = {
+    on() {},
+    inject(names, cb) { if (names.includes('webServer')) cb(ctx2); },
+    get(name) {
+      if (name === 'webServer') return web2;
+      if (name === 'clientModules') return { release: { version: '0.2.2-rc.5' } };
+      return undefined;
+    },
+    effect(fn) { fn(); },
+    logger: { warn() {}, info() {} },
+  };
+  mod.apply(ctx2, {});
+  const handler = routes2.get('/sidebar-tuner/version');
+  check('服务存在时仍注册版本路由', Boolean(handler));
+  let body = '';
+  await handler({ method: 'GET', socket: { remoteAddress: '127.0.0.1' } }, {
+    writeHead() {},
+    end(chunk) { body = String(chunk || ''); },
+  });
+  const data2 = JSON.parse(body || '{}');
+  check('优先采用 clientModules.release.version', data2.version === '0.2.2-rc.5', String(data2.version));
+}
+
 console.log('\n' + (failed === 0 ? '全部通过' : failed + ' 项未通过'));
 process.exit(failed === 0 ? 0 : 1);

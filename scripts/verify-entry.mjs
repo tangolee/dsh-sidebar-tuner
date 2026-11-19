@@ -426,5 +426,24 @@ console.log('\n== 场景 10：搜索框占位按 DOM 实际情况决定（rc.5 �
   check('搜索框消失后撤掉标记', !attr(), String(attr()));
 }
 
+console.log('\n== 场景 11：前端优先读 boot.release.version（rc.5 的载体）==');
+{
+  const harness = createHarness();
+  // rc.5 的 __DSH_BOOT__ 用 release.version 表示宿主版本
+  harness.sandbox.window.__DSH_BOOT__ = { release: { version: '0.2.2-rc.9-test', commit: 'abc1234' } };
+  buildSidebar(harness.body);
+  runScript(script, harness.sandbox);
+  const tick = async (times = 6) => { for (let i = 0; i < times; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+  await tick();
+
+  const railEntry = harness.document.getElementById('dst-rail-entry');
+  if (railEntry) railEntry.dispatchEvent(new Event('click'));
+  await tick(4);
+
+  const panelText = String((harness.body.querySelector('[data-dst-panel]') || {}).textContent || '');
+  check('读到 boot.release.version', panelText.includes('检测到 DSH 0.2.2-rc.9-test'), panelText.slice(0, 90));
+  check('有 boot 版本时不再打宿主路由', !harness.requests.some((req) => String(req.url).includes('/sidebar-tuner/version')));
+}
+
 console.log('\n' + (failed === 0 ? '全部通过' : failed + ' 项未通过'));
 process.exit(failed === 0 ? 0 : 1);
