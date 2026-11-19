@@ -290,9 +290,6 @@ const UI_SCRIPT = `(() => {
       hint: '折叠时把内容右推，不覆盖。' },
     { key: 'railTooltips',  label: '图标悬停显示名称',
       hint: '鼠标停上去浮出图标名字。' },
-    // 这一项要重算 CSS 才生效，没有对应的 <html> 属性开关：保存后生效
-    { key: 'searchInRail',  label: '搜索框并入图标列',
-      hint: '常态一个图标宽，聚焦后向右展开；保存后生效。' },
   ];
   // 「不改字体的区域」的可勾选项。选择器是给 CSS 用的，勾选框是给人用的。
   const KEEP_PRESETS = [
@@ -446,12 +443,34 @@ const UI_SCRIPT = `(() => {
   const sidebarRoot = (nav) => document.querySelector('[class*="_sidebarCol"]')
     || (nav && nav.closest('[class*="_root"]'))
     || (nav && nav.parentElement && nav.parentElement.parentElement);
+  // 搜索控件的候选选择器：archive-manager / 旧版 ui-workspace / 通用搜索框。
+  // DSH 0.2.2-rc.5 的左栏已经没有搜索控件，所以这里按 DOM 实际情况决定要不要占位，
+  // 而不是照着配置硬留一块空白。
+  const SEARCH_SELECTORS = [
+    '[class*="dsham_searchField"]',
+    '[class*="_searchField"]',
+    '[class*="_searchBox"]',
+    '[class*="_searchInput"]',
+    '[class*="_search"] input[type="search"]',
+  ];
+  const syncSearchFlag = () => {
+    let found = false;
+    for (const selector of SEARCH_SELECTORS) {
+      try { if (document.querySelector(selector)) { found = true; break; } } catch { /* 忽略非法选择器 */ }
+    }
+    const root = document.documentElement;
+    if (!root) return;
+    if (found) root.setAttribute('data-dst-search', '1');
+    else root.removeAttribute('data-dst-search');
+  };
+
   const attachRail = () => {
     const nav = document.querySelector('[class*="_panelList"]');
     if (!nav) return;
     // 标记宿主侧栏根：样式作用域与排查都靠它，卸载时删掉即复原
     const root = sidebarRoot(nav);
     if (root && root.getAttribute('data-dst-active') !== '1') root.setAttribute('data-dst-active', '1');
+    try { syncSearchFlag(); } catch { /* 忽略 */ }
     if (railBtn.parentElement === nav) return;
     const anchor = nav.querySelector('[class*="moreAnchor"]');
     if (anchor && anchor.parentElement === nav) nav.insertBefore(railBtn, anchor);
@@ -984,7 +1003,7 @@ const UI_SCRIPT = `(() => {
     box.style.margin = '0';
     // 勾选即刻生效：只增删 <html> 上的属性，不重算 CSS
     box.addEventListener('change', () => {
-      // 只有落成 <html> 属性的开关能即时生效；其余（如 searchInRail）等保存后重算 CSS
+      // 只有落成 <html> 属性的开关能即时生效；数字类与选择类要保存后重算 CSS
       const flag = FLAG_OF[f.key];
       if (flag && window.__dstSetFlag) {
         window.__dstSetFlag(flag, box.checked);

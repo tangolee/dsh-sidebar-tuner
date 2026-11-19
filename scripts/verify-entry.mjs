@@ -163,7 +163,7 @@ console.log('\n== 场景 4：打开面板 → 点「应用并保存」==');
     if (body) {
       const expected = ['fontFamilyZh', 'fontFamilyEn', 'fontFallbacks', 'fontSize', 'letterSpacing', 'fontWeight', 'fontFeatures',
         'terminalFollowCode', 'terminalFontFamily', 'terminalFontSize', 'terminalLigatures',
-        'compactLayout', 'collapsedRail', 'pushContent', 'railTooltips', 'searchInRail',
+        'compactLayout', 'collapsedRail', 'pushContent', 'railTooltips',
         'railWidth', 'panelWidth', 'fontExclude', 'railIcon', 'contentFontSize', 'contentCodeFont'];
       const missing = expected.filter((key) => !(key in body));
       check('提交内容含全部关键字段', missing.length === 0, missing.length ? missing.join(', ') : expected.length + ' 项');
@@ -395,6 +395,32 @@ console.log('\n== 场景 9：适配声明跟随宿主版本 ==');
   check('测到的版本已更新为 rc.5', panelText.includes('测到 0.2.2-rc.5'), panelText.slice(0, 80));
   check('不再残留 rc.3', !panelText.includes('rc.3'));
   check('请求过 /sidebar-tuner/version', harness.requests.some((req) => String(req.url).includes('/sidebar-tuner/version')));
+}
+
+console.log('\n== 场景 10：搜索框占位按 DOM 实际情况决定（rc.5 左栏已无搜索框）==');
+{
+  const harness = createHarness();
+  buildSidebar(harness.body);
+  runScript(script, harness.sandbox);
+  const tick = async (times = 6) => { for (let i = 0; i < times; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+  await tick();
+
+  const attr = () => harness.document.documentElement.getAttribute('data-dst-search');
+  check('没有搜索框时不占位', !attr(), String(attr()));
+
+  // 模拟外部插件塞进来一个搜索框，再让观察器跑一次
+  const fakeSearch = new MiniElement('input');
+  fakeSearch.className = 'dsham_searchField';
+  harness.body.appendChild(fakeSearch);
+  const observer = harness.observers[0];
+  if (observer) observer.callback([{ type: 'childList', target: harness.body, addedNodes: [fakeSearch], removedNodes: [] }]);
+  await tick(3);
+  check('检测到搜索框后打上 data-dst-search', attr() === '1', String(attr()));
+
+  fakeSearch.remove();
+  if (observer) observer.callback([{ type: 'childList', target: harness.body, addedNodes: [], removedNodes: [fakeSearch] }]);
+  await tick(3);
+  check('搜索框消失后撤掉标记', !attr(), String(attr()));
 }
 
 console.log('\n' + (failed === 0 ? '全部通过' : failed + ' 项未通过'));

@@ -55,7 +55,6 @@ export const DEFAULTS = Object.freeze({
   fontExclude: ['[data-slot="sidebar.footer.action"]'],
   railWidth: 56,
   panelWidth: 232,
-  searchInRail: true,
   pushContent: true,
   zIndex: 30,
 });
@@ -307,21 +306,10 @@ ${EXPANDED} ${COL} [class*="_panelUnpin"]{display:none !important}`);
     // 不能用后代组合子（html 里没有第二个 html）
     const win = `html[data-dst-rail][data-windows-titlebar] ${FOLDED}`;
 
-    // 图标栏顶部要给搜索留一个位置，否则第一个图标会被压住
-    const searchOn = c.searchInRail !== false;
-    const searchTop = 6;
-    const searchHeight = 30;
-    const railPadTop = searchOn ? searchTop + searchHeight + 6 : 6;
-    // 搜索控件的候选选择器：archive-manager / 原生 ui-workspace / 通用搜索框
-    const SEARCH_BASE = [
-      '[class*="dsham_searchField"]',
-      '[class*="_searchField"]',
-      '[class*="_searchBox"]',
-      '[class*="_searchInput"]',
-      '[class*="_search"] input[type="search"]',
-    ];
-    // 每个选择器都要单独带作用域前缀，否则多行列表只有第一行生效
-    const scopedSearch = (extra = '') => SEARCH_BASE.map((sel) => `${win} ${sel}${extra}`).join(',\n');
+    // 图标栏顶部要不要给搜索留位置：DSH 0.2.2-rc.5 的左栏已经没有搜索控件，
+    // 所以默认不留；只有当页面里真的存在搜索框（自带插件或 archive-manager 提供）
+    // 且开关打开时，脚本会给 <html> 打上 data-dst-search，下面那条规则才生效。
+    const railPadTop = 6;
 
     rules.push(`${win} [class*="_panelList"]{
   display:flex !important;
@@ -339,24 +327,10 @@ ${EXPANDED} ${COL} [class*="_panelUnpin"]{display:none !important}`);
   z-index:${z + 1};
 }`);
 
-    // 搜索上移：仅折叠态需要（该状态下会随会话列一并隐藏，保留代码便于后续切换）
-    if (false && searchOn) {
-      rules.push(`${scopedSearch()}{
-  position:fixed !important;
-  left:4px; top:calc(${top} + ${searchTop}px);
-  width:${rail - 8}px !important;
-  height:${searchHeight}px !important;
-  padding:0 6px !important;
-  box-sizing:border-box;
-  z-index:${z + 3};
-  transition:width .16s ease, left .16s ease;
+    // 真的存在搜索框时，脚本会给 <html> 打上 data-dst-search，这时才在图标列顶部留位置
+    rules.push(`html[data-dst-rail][data-dst-search] [class*="_panelList"]{
+  padding-top:42px !important;
 }`);
-      rules.push(`${scopedSearch(':focus')},
-${scopedSearch(':focus-within')}{
-  left:${rail + 6}px !important;
-  width:${panel - 12}px !important;
-}`);
-    }
 
     // 关键：.regionArea 被 .scrollRegion > .scrollArea 两层滚动容器包着。
     // 只要祖先带有 transform / overflow 形成的容纳块，其 position:fixed 就会被
