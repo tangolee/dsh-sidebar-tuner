@@ -519,6 +519,85 @@ ${win} [class*="_panelEntry"]{
   --dst-panel-radius:14px;
 }`);
 
+
+  // ── 9. 并排两栏（当前 DOM） ────────────────────────────────
+  // 当前 DSH 侧栏：_root 是 flex 列，_panelList 与 _regionArea 是它的直接子元素，
+  // 中间没有 0.3.7 假设的 _scrollArea 包一层。所以改成对 _root 上 grid：
+  //   [图标列 56px][工作区列]，新会话与底部区域横跨两列。
+  // 容器用 :has(> 两者) 认，不依赖 _root 这个类名（它可能被别的包重名）。
+  {
+    const railW = num(c.railWidth, 56, 40, 96);
+    // 展开态判定放宽：DSH 可能写成 data-sidebar-collapsed="false"，只用存在性判定会误伤
+    const FRAME = '[class*="_frame"]:not([data-sidebar-collapsed="true"])';
+    const BOX = `html[data-dst-compact] ${FRAME} ${COL} :has(> [class*="_panelList"]):has(> [class*="_regionArea"]):not([class*="_collapsed"])`;
+
+    rules.push(`${BOX}{
+  display:grid !important;
+  grid-template-columns:${railW}px minmax(0, 1fr) !important;
+  grid-template-rows:auto auto auto minmax(0, 1fr) auto !important;
+  height:100% !important;
+  min-height:0 !important;
+  box-sizing:border-box;
+}`);
+
+    rules.push(`${BOX} > [class*="_logoRow"]{
+  grid-column:1 / -1 !important;
+  grid-row:2 !important;
+}`);
+    rules.push(`${BOX} > [class*="_newSession"]{
+  grid-column:1 / -1 !important;
+  grid-row:3 !important;
+}`);
+
+    rules.push(`${BOX} > [class*="_panelList"]{
+  grid-column:1 !important;
+  grid-row:4 !important;
+  width:${railW}px !important;
+  min-width:${railW}px !important;
+  margin:0 !important;
+  padding:6px 4px !important;
+  box-sizing:border-box;
+  align-items:center !important;
+  align-content:start !important;
+  gap:2px !important;
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
+}`);
+    rules.push(`${BOX} > [class*="_panelList"] [class*="_panelRow"]{
+  width:${railW - 16}px !important;
+  min-width:${railW - 16}px !important;
+  padding:0 !important;
+  gap:0 !important;
+  justify-content:center !important;
+}`);
+    rules.push(`${BOX} > [class*="_panelList"] [class*="_panelTitle"]{display:none !important}`);
+
+    rules.push(`${BOX} > [class*="_regionArea"]{
+  grid-column:2 !important;
+  grid-row:4 !important;
+  align-self:stretch !important;
+  min-width:0 !important;
+  width:auto !important;
+  height:auto !important;
+  max-height:none !important;
+  margin:0 !important;
+  padding:0 !important;
+  overflow:hidden !important;
+  display:flex !important;
+  flex-direction:column !important;
+}`);
+    rules.push(`${BOX} > [class*="_regionArea"] > *{
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+}`);
+
+    rules.push(`${BOX} > [class*="_footArea"]{
+  grid-column:1 / -1 !important;
+  grid-row:5 !important;
+}`);
+  }
+
   return rules.join('\n');
 }
 
